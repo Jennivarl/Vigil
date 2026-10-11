@@ -8,10 +8,17 @@ remembers the terms, and pays out on a verdict PROBATE reached. Keeping the
 money and the judgement in different contracts means the thing that can be
 argued about is not the thing holding the funds.
 
-    write(pulse, pulse_id, successor, silence_days)   payable
-    top_up(will_id)                                   payable
-    cancel(will_id)        the owner takes it back, any time they are here
-    execute(will_id)       pay the successor, on a ripe probate
+    write(pulse_id, successor, silence_days)   payable
+    top_up(will_id)                            payable
+    cancel(will_id)      the owner takes it back, any time they are here
+    execute(probate_id, will_id)   pay the successor, on a ripe probate
+
+Both contracts this one reads are fixed when it is deployed. That is not
+tidiness. An earlier version took the court's address as an argument to
+`execute`, and anyone could then pass a contract of their own that returned
+a ripe verdict, draining a living owner's will to the successor on demand.
+A contract that lets a caller choose who it believes has no guarantees at
+all.
 
 The owner can cancel at any moment right up to execution, and that is the
 point rather than a loophole. Every one of these transactions is signed by
@@ -51,15 +58,45 @@ class Will:
 
 
 class WillContract(gl.contract.Contract):
+    # The liveness record and the court this contract believes. Neither can
+    # ever be chosen by a caller.
+    pulse: Address
+    probate: Address
+    founder: Address
     wills: gl.storage.TreeMap[str, Will]
     will_ids: gl.storage.DynArray[str]
     committed: u256
 
-    def __init__(self):
+    def __init__(self, pulse: str):
+        self.pulse = _address(pulse)
+        # PROBATE has to know this contract's address and this contract has
+        # to know PROBATE's, so one of them is set once, afterwards, by
+        # whoever deployed this. It can never be changed again.
+        self.probate = _zero()
+        self.founder = gl.message.sender_address
         self.committed = 0
 
+    @gl.public.write
+    def bind_probate(self, probate: str) -> dict:
+        """
+        Name the court, once, and never again.
+
+        Deployment order forces this: the court must know this contract and
+        this contract must know the court. Allowing it to be changed later
+        would hand whoever could change it every deposit held here.
+        """
+        if gl.message.sender_address.as_hex.lower() != self.founder.as_hex.lower():
+            raise gl.vm.UserError("only whoever deployed this may name the court")
+        if self.probate.as_hex.lower() != "0x" + "00" * 20:
+            raise gl.vm.UserError("the court is already named and cannot be changed")
+        at = _address(probate)
+        if at.as_hex.lower() == "0x" + "00" * 20:
+            raise gl.vm.UserError("name a real contract")
+        self.probate = at
+        return self.settings()
+
     @gl.public.write.payable
-    def write(self, pulse: str, pulse_id: str, successor: str, silence_days: int) -> dict:
+    def write(self, pulse_id: str, successor: str, silence_days: int) -> dict:
         """
         Put something aside, against your own silence.
 
@@ -75,7 +112,7 @@ class WillContract(gl.contract.Contract):
         if days < MIN_SILENCE_DAYS or days > MAX_SILENCE_DAYS:
             raise gl.vm.UserError(f"silence must be between {MIN_SILENCE_DAYS} and {MAX_SILENCE_DAYS} days")
 
-        at = _address(pulse)
+        at = self.pulse
         key = pulse_id.strip().lower()
         record = gl.contract.get_at(at).view().get_pulse(key)
 
@@ -152,7 +189,7 @@ class WillContract(gl.contract.Contract):
         return _as_dict(key, will)
 
     @gl.public.write
-    def execute(self, probate: str, probate_id: str, will_id: str) -> dict:
+    def execute(self, probate_id: str, will_id: str) -> dict:
         """
         Pay the successor, on a verdict this contract did not reach.
 
@@ -168,8 +205,10 @@ class WillContract(gl.contract.Contract):
         """
         key = will_id.strip().lower()
         will = self._held(key)
+        if self.probate.as_hex.lower() == "0x" + "00" * 20:
+            raise gl.vm.UserError("no court has been named yet")
 
-        verdict = gl.contract.get_at(_address(probate)).view().verdict(probate_id.strip().lower())
+        verdict = gl.contract.get_at(self.probate).view().verdict(probate_id.strip().lower())
 
         # Pin the probate to this will, without the contract needing to know
         # its own address: the id, the owner and the pulse must all line up.
@@ -207,6 +246,11 @@ class WillContract(gl.contract.Contract):
     # ----------------------------------------------------------------
     # reading
     # ----------------------------------------------------------------
+
+    @gl.public.view
+    def settings(self) -> dict:
+        """Which liveness record and which court this contract believes."""
+        return {"pulse": self.pulse.as_hex, "probate": self.probate.as_hex, "founder": self.founder.as_hex}
 
     @gl.public.view
     def get_will(self, will_id: str) -> dict:
@@ -252,6 +296,10 @@ class WillContract(gl.contract.Contract):
 
 def _stamp() -> str:
     return str(gl.message.raw["datetime"])
+
+
+def _zero() -> Address:
+    return Address("0x" + "00" * 20)
 
 
 def _address(value) -> Address:

@@ -47,7 +47,7 @@ def stubs(direct_vm):
 
 @pytest.fixture
 def probate(direct_vm, direct_deploy, stubs):
-    contract = direct_deploy(BUNDLE)
+    contract = direct_deploy(BUNDLE, will=WILL_AT)
     direct_vm.strict_mocks = False
     set_date(direct_vm, OPENED)
     return contract
@@ -55,7 +55,7 @@ def probate(direct_vm, direct_deploy, stubs):
 
 def open_case(vm, probate, who=HEIR):
     with vm.prank(who):
-        return probate.open(WILL_AT, WILL_ID)
+        return probate.open(WILL_ID)
 
 
 # ----------------------------------------------------------------------
@@ -214,3 +214,8 @@ def test_a_halted_case_can_be_reopened_if_the_owner_goes_quiet_again(direct_vm, 
 
 def test_the_grace_period_is_published_rather_than_implied(probate):
     assert probate.terms()["grace_days"] == str(GRACE_DAYS)
+
+
+def test_the_custody_contract_is_fixed_not_chosen_by_a_caller(probate):
+    """A court that hears any contract's wills is a court anyone can forge."""
+    assert probate.settings()["will"].lower() == WILL_AT

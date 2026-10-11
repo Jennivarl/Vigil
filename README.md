@@ -19,11 +19,11 @@ No model is involved anywhere. Validators fetch and compare strings.
 |---|---|
 | Network | GenLayer Studio Next, chain id 61997, `https://studio-next.genlayer.com/api` |
 | Engine | Consensus v0.6, GenVM v0.3, runner `py-genlayer:5jycge...` |
-| PULSE | [`0xD37f94D4f12e5eE099735aF0934605fC54189cF5`](https://explorer-studio-dev.genlayer.com/address/0xD37f94D4f12e5eE099735aF0934605fC54189cF5) |
-| WILL | [`0x38e6BA32d39448B0b2c6eA5e987A9d78f16cea7C`](https://explorer-studio-dev.genlayer.com/address/0x38e6BA32d39448B0b2c6eA5e987A9d78f16cea7C) |
-| PROBATE | [`0x9539dD68BF410bB1d59B4aa573223dD8f803F9C8`](https://explorer-studio-dev.genlayer.com/address/0x9539dD68BF410bB1d59B4aa573223dD8f803F9C8) |
-| WITNESS | [`0xd1D5cD25676288F68E317E19CB0Ce8De67d96834`](https://explorer-studio-dev.genlayer.com/address/0xd1D5cD25676288F68E317E19CB0Ce8De67d96834) |
-| Tests | 143, `python -m pytest -q` |
+| PULSE | [`0x9467cE5dfD80FaE1a0e958413A84396dA43b51cB`](https://explorer-studio-dev.genlayer.com/address/0x9467cE5dfD80FaE1a0e958413A84396dA43b51cB) |
+| WILL | [`0x7bB9e11B20f749Cfc17B925BeeE538b4a86313fe`](https://explorer-studio-dev.genlayer.com/address/0x7bB9e11B20f749Cfc17B925BeeE538b4a86313fe) |
+| PROBATE | [`0x19F9CA63f06BC1cCeaCde0CFc486CA14b551967c`](https://explorer-studio-dev.genlayer.com/address/0x19F9CA63f06BC1cCeaCde0CFc486CA14b551967c) |
+| WITNESS | [`0xdeF02b8b5DCa1E03998e2B16E305E13783fFACb7`](https://explorer-studio-dev.genlayer.com/address/0xdeF02b8b5DCa1E03998e2B16E305E13783fFACb7) |
+| Tests | 148, `python -m pytest -q` |
 
 ---
 
@@ -50,6 +50,27 @@ A validator that could not reach the host agrees only that it was unreachable, a
 **Probate is a public event with a grace period.** Fourteen days during which one signed transaction from the owner ends the whole thing. The threshold could pass while somebody is in hospital or on a boat, and the grace is the window in which anyone who cares can tell them to sign something.
 
 **The owner can cancel at any moment, right up to execution.** That is not a loophole. Every one of those transactions is signed by the owner, so anybody who can send one has answered the only question being asked.
+
+---
+
+## Nothing chooses who it believes at call time
+
+This is the most important thing in the design, and it is here because an audit of this very code found it missing.
+
+An earlier version of `WILL.execute` took the court's address as an argument. A stranger could deploy a contract whose `verdict` returned `ripe` with any `opened_at` it liked, pass that address, and drain a living owner's will to the successor on demand. It was reproduced against the real bundle: the owner had pinged minutes before, the threshold was ninety days, and the deposit still moved.
+
+Every cross-contract address is now fixed when the contract is deployed and can never be an argument.
+
+| contract | reads | fixed how |
+|---|---|---|
+| WILL | PULSE | constructor |
+| WILL | PROBATE | named once, by the deployer, and never again |
+| PROBATE | WILL | constructor |
+| WITNESS | PULSE | constructor |
+
+The court is named afterwards rather than in the constructor only because the two contracts have to know each other, and something has to be deployed first. `bind_probate` refuses anyone but the deployer, refuses a second call, and `execute` refuses to run at all until it has been set. `settings()` on both publishes what they trust.
+
+A contract that lets its caller choose who it believes has no guarantees at all, only the appearance of them.
 
 ---
 
@@ -102,23 +123,21 @@ A marker is required rather than optional for the same reason in reverse. Treati
 
 | step | transaction | outcome |
 |---|---|---|
-| Deploy PULSE | [`0x908591db...`](https://explorer-studio-dev.genlayer.com/tx/0x908591dbee03f85543af3dfb9f6eade647e05dfbd31b07e4283a7e9c7b2810c9) | source byte-identical to the bundle in this repo |
-| Deploy WILL | [`0x4cf24553...`](https://explorer-studio-dev.genlayer.com/tx/0x4cf245530bc2a84f065b7c0c4b2c125ae3fdf7157257ed19c484fbbd80a8830d) | |
-| Deploy PROBATE | [`0x9a7a4941...`](https://explorer-studio-dev.genlayer.com/tx/0x9a7a4941306b5c37c9ef6fdbc2d0262ed784b4822aff74214b3d2e16fe6a2bc7) | |
-| Deploy WITNESS | [`0xa7e29c8b...`](https://explorer-studio-dev.genlayer.com/tx/0xa7e29c8bab10fc5435f7e0e7b94de76a6a0d44062f2dfadd96432663db4f6e7d) | pointed at a live pulse |
-| Register a pulse on a real page | [`0x5d59bd1f...`](https://explorer-studio-dev.genlayer.com/tx/0x5d59bd1f4498211e167c5fc9a19e424d3fe6c4e32a7bb5b876a269fd6dba8646) | `example.com/`, marker `Example Domain` |
-| Observe it | [`0x11990005...`](https://explorer-studio-dev.genlayer.com/tx/0x119900056b08f4903dd5222b12d4f4b4542532b00c7aea51663f8b04d5c5d049) | **`alive`**: `the marker is still there` |
-| Register a second pulse, same page, different marker | [`0x0f09d8b6...`](https://explorer-studio-dev.genlayer.com/tx/0x0f09d8b665e4075ee40cd5592f3169d858ba9e7063337bdd717a39228c8a636b) | marker `the owner is still here`, which is not on that page |
-| Observe it | [`0x508b5714...`](https://explorer-studio-dev.genlayer.com/tx/0x508b5714d127870dee67cda520452cf7560a178b8fb349a5bd1f4b435cbd254f) | **`silent`**: `the page loaded without the marker` |
-| Register a pulse on a host that does not resolve | [`0xc10b2d15...`](https://explorer-studio-dev.genlayer.com/tx/0xc10b2d157d3b481abae9bb78d7163aa8440703d69af5974bc09f7e783f0a0daf) | |
-| Observe it | [`0x99964c39...`](https://explorer-studio-dev.genlayer.com/tx/0x99964c39c8006720a27ab1776a2b7e2b3f1bb87bf7f0c0d802d4a7cc6071e35b) | **`unreachable`**: `the document could not be fetched`. Nothing advanced |
-| Write a will against the live pulse | [`0x9bcc0902...`](https://explorer-studio-dev.genlayer.com/tx/0x9bcc09027f9c5b1d0692bd643d66719a1a3b0e023cf2038ada917c015f8c0101) | 0.5 GEN held, 90 days of silence required |
-| Try to open probate | [`0x3e76893f...`](https://explorer-studio-dev.genlayer.com/tx/0x3e76893f5e4ae41a596f6ec38c61e26d2ae525892d758630b054fe1d68cb8d3b) | **refused**, `only the named successor may open probate` |
-| Owner cancels | [`0x9a29c0bc...`](https://explorer-studio-dev.genlayer.com/tx/0x9a29c0bc4f1fcb5c181a463bdbd78b0472e753b22465e9e3a9fdf5c034752844) | **paid back**: the owner went from 37.572677 to 38.072551 GEN, the deposit returned |
+| Register a pulse on a real page | [`0x91d45a0f...`](https://explorer-studio-dev.genlayer.com/tx/0x91d45a0f1c5b37db954392c2576a7514d588c17d2b8dcdd5d3d5fef23515672b) | `example.com/`, marker `Example Domain` |
+| Observe it | [`0x233ee53a...`](https://explorer-studio-dev.genlayer.com/tx/0x233ee53ae82b98be3774aa04e65783e64188e4f5269498b178028efc4572cdb9) | **`alive`**: `the marker is still there` |
+| Register a second pulse, same page, different marker | [`0x06812d08...`](https://explorer-studio-dev.genlayer.com/tx/0x06812d08732354a68ee2eaffd350ac566410e9067136f6fdf880e1d9c8649842) | marker `the owner is still here`, which is not on that page |
+| Observe it | [`0x1be72eb4...`](https://explorer-studio-dev.genlayer.com/tx/0x1be72eb47f8498dcbabf51226fb4ed277ccb639aa36bf28448cbfafa42855495) | **`silent`**: `the page loaded without the marker` |
+| Register a pulse on a host that does not resolve | [`0x78ca2124...`](https://explorer-studio-dev.genlayer.com/tx/0x78ca21242e087e331149cd0660052815fa40ecf7fc17551e48cce75b8b90c124) | |
+| Observe it | [`0xf91a8254...`](https://explorer-studio-dev.genlayer.com/tx/0xf91a8254608cec73e774f599951bc9514f3637d9aad30a3ecdd7f52f04f4d8c7) | **`unreachable`**: `the document could not be fetched`. Nothing advanced |
+| Write a will against the live pulse | [`0x2a899522...`](https://explorer-studio-dev.genlayer.com/tx/0x2a899522ac7f106dc25464920a9777042a55bbbd6a0e0e381c30be5ef37ceee7) | 0.5 GEN held, 90 days of silence required |
+| Try to open probate | [`0x516c8070...`](https://explorer-studio-dev.genlayer.com/tx/0x516c80700bc09c939bb29c14fb7295fb4bd7be50cd9cef62253ef3e1552442da) | **refused**, `only the named successor may open probate` |
+| Owner cancels | [`0xa5579fe4...`](https://explorer-studio-dev.genlayer.com/tx/0xa5579fe4308645d59c86ce79bf958047541e4905a2358a65fd97b2eee73aae57) | **paid back**: 37.109701 to 37.609575 GEN, the deposit returned |
 
-The middle three rows are the design in one place. The **same page**, fetched by the same contract, is `alive` under one marker and `silent` under another, while a host that cannot be reached is neither.
+The middle rows are the design in one place. The **same page**, fetched by the same contract, is `alive` under one marker and `silent` under another, while a host that cannot be reached is neither.
 
-**Not shown live:** a completed handover, because it needs 90 days of real silence followed by a 14 day grace. Every step of it is covered by the test suite, including the case where the owner reappears after probate opens and the successor gets nothing.
+The deploys, in dependency order: PULSE [`0x7b946902...`](https://explorer-studio-dev.genlayer.com/tx/0x7b946902ac498330d79e58114cc3301d98a20b1e1d563c04e901ba3d57afb8d1), WILL [`0x1b388291...`](https://explorer-studio-dev.genlayer.com/tx/0x1b388291a3428b408bc017206e0ec38fba605c47c2439ba9619c8198ca0396f4), PROBATE [`0xe1474172...`](https://explorer-studio-dev.genlayer.com/tx/0xe147417233d8878e9a4c1715a0a6edaf53fbf4d23fd68de9ac2fde7ae77ef87b), WITNESS [`0xd038a1b8...`](https://explorer-studio-dev.genlayer.com/tx/0xd038a1b8808380fc499f9a5ad38ac34baf5ca887728135e22ec4f56124044c62). The court was then bound to WILL, once and for good: [`0x32716d38...`](https://explorer-studio-dev.genlayer.com/tx/0x32716d386084546fef8aa85613c6b4ac8b9f9ea009477b7abfe0ecb6b86f41d2).
+
+**Not shown live:** a completed handover, because it needs 90 days of real silence followed by 14 of grace. Every step of it is covered by the test suite, including the case where the owner reappears after probate opens and the successor gets nothing.
 
 ---
 
@@ -138,7 +157,7 @@ The middle three rows are the design in one place. The **same page**, fetched by
 ```sh
 python -m venv .venv && .venv/Scripts/pip install -r requirements.txt
 python -m deploy.build_bundle          # the four files that actually deploy
-python -m pytest -q                    # 143 tests, no chain and no network
+python -m pytest -q                    # 148 tests, no chain and no network
 ```
 
 The tests run the contracts in direct mode, in process. The watched document is answered from the test, so a test can produce states that are slow to arrange for real: years of silence, a host that is merely down, and an owner who reappears at the last possible moment.
@@ -146,6 +165,16 @@ The tests run the contracts in direct mode, in process. The watched document is 
 Direct mode loads one contract per process, so WILL, PROBATE and WITNESS are tested against stubs that speak the real cross-contract protocol: the contract genuinely calls out, and the reply is genuinely calldata encoded.
 
 To drive the live copies:
+
+Deployment order matters, because each contract is told who it trusts, and the court is bound once afterwards:
+
+```sh
+node deploy/deploy.mjs contracts/pulse_bundle.py
+node deploy/deploy.mjs contracts/will_bundle.py    <pulse address>
+node deploy/deploy.mjs contracts/probate_bundle.py <will address>
+# then, once, from the deploying account:
+#   WILL.bind_probate(<probate address>)
+```
 
 ```sh
 npm install
@@ -173,7 +202,7 @@ deploy/chain.mjs            network, signing and payout fee allocations
 deploy/deploy.mjs           deploy one bundle
 deploy/verify.mjs           prove a live contract runs this exact bundle
 deploy/demo.mjs             drive the live copies
-test/                       143 tests
+test/                       148 tests
 ```
 
 GenVM loads a single source file with no access to siblings, so each bundle pastes a contract together with the pure module it imports. Comments and docstrings are stripped from the deployed copy, because a deploy costs gas per byte and a bundle over the cap returns a transaction hash and then simply does not exist. Edit the modules, never a bundle: a test regenerates them and fails if a committed copy has drifted.

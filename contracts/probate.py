@@ -8,7 +8,7 @@ has to come forward and say so, and then a grace period runs during which
 one signed transaction from the owner ends the whole thing. This contract
 is that process, and nothing else: it holds no money and pays nobody.
 
-    open(will, will_id)   start the clock, if the silence has already run
+    open(will_id)         start the clock, if the silence has already run
     halt(probate_id)      stop it, because the owner has shown up
     verdict(probate_id)   open, halted or ripe, as a free view
 
@@ -61,14 +61,18 @@ class Probate:
 
 
 class ProbateContract(gl.contract.Contract):
+    # The one custody contract whose wills this court hears. Fixed at
+    # deployment, so nobody can have it adjudicate a will of their own
+    # invention and then wave the verdict at the real one.
+    will: Address
     cases: gl.storage.TreeMap[str, Probate]
     case_ids: gl.storage.DynArray[str]
 
-    def __init__(self):
-        pass
+    def __init__(self, will: str):
+        self.will = _address(will)
 
     @gl.public.write
-    def open(self, will: str, will_id: str) -> dict:
+    def open(self, will_id: str) -> dict:
         """
         Start the clock, if the owner's silence has already run its course.
 
@@ -76,7 +80,7 @@ class ProbateContract(gl.contract.Contract):
         somebody else's probate would make the grace period a nuisance that
         strangers could inflict at will.
         """
-        at = _address(will)
+        at = self.will
         key = will_id.strip().lower()
         terms = gl.contract.get_at(at).view().get_will(key)
 
@@ -169,6 +173,10 @@ class ProbateContract(gl.contract.Contract):
         if key not in self.cases:
             raise gl.vm.UserError("no such probate: " + key)
         return _as_dict(key, self.cases[key], _now())
+
+    @gl.public.view
+    def settings(self) -> dict:
+        return {"will": self.will.as_hex, "grace_days": str(GRACE_DAYS)}
 
     @gl.public.view
     def case_list(self) -> list:

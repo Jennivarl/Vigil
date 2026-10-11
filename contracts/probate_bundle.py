@@ -111,15 +111,16 @@ class Probate:
     reason: str
 
 class ProbateContract(gl.contract.Contract):
+    will: Address
     cases: gl.storage.TreeMap[str, Probate]
     case_ids: gl.storage.DynArray[str]
 
-    def __init__(self):
-        pass
+    def __init__(self, will: str):
+        self.will = _address(will)
 
     @gl.public.write
-    def open(self, will: str, will_id: str) -> dict:
-        at = _address(will)
+    def open(self, will_id: str) -> dict:
+        at = self.will
         key = will_id.strip().lower()
         terms = gl.contract.get_at(at).view().get_will(key)
         if str(terms['state']) != 'held':
@@ -170,6 +171,10 @@ class ProbateContract(gl.contract.Contract):
         if key not in self.cases:
             raise gl.vm.UserError('no such probate: ' + key)
         return _as_dict(key, self.cases[key], _now())
+
+    @gl.public.view
+    def settings(self) -> dict:
+        return {'will': self.will.as_hex, 'grace_days': str(GRACE_DAYS)}
 
     @gl.public.view
     def case_list(self) -> list:

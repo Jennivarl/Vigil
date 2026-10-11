@@ -109,22 +109,40 @@ class Will:
     reason: str
 
 class WillContract(gl.contract.Contract):
+    pulse: Address
+    probate: Address
+    founder: Address
     wills: gl.storage.TreeMap[str, Will]
     will_ids: gl.storage.DynArray[str]
     committed: u256
 
-    def __init__(self):
+    def __init__(self, pulse: str):
+        self.pulse = _address(pulse)
+        self.probate = _zero()
+        self.founder = gl.message.sender_address
         self.committed = 0
 
+    @gl.public.write
+    def bind_probate(self, probate: str) -> dict:
+        if gl.message.sender_address.as_hex.lower() != self.founder.as_hex.lower():
+            raise gl.vm.UserError('only whoever deployed this may name the court')
+        if self.probate.as_hex.lower() != '0x' + '00' * 20:
+            raise gl.vm.UserError('the court is already named and cannot be changed')
+        at = _address(probate)
+        if at.as_hex.lower() == '0x' + '00' * 20:
+            raise gl.vm.UserError('name a real contract')
+        self.probate = at
+        return self.settings()
+
     @gl.public.write.payable
-    def write(self, pulse: str, pulse_id: str, successor: str, silence_days: int) -> dict:
+    def write(self, pulse_id: str, successor: str, silence_days: int) -> dict:
         amount = gl.message.value
         if amount <= 0:
             raise gl.vm.UserError('send the deposit with this call')
         days = int(silence_days)
         if days < MIN_SILENCE_DAYS or days > MAX_SILENCE_DAYS:
             raise gl.vm.UserError(f'silence must be between {MIN_SILENCE_DAYS} and {MAX_SILENCE_DAYS} days')
-        at = _address(pulse)
+        at = self.pulse
         key = pulse_id.strip().lower()
         record = gl.contract.get_at(at).view().get_pulse(key)
         owner = gl.message.sender_address
@@ -175,10 +193,12 @@ class WillContract(gl.contract.Contract):
         return _as_dict(key, will)
 
     @gl.public.write
-    def execute(self, probate: str, probate_id: str, will_id: str) -> dict:
+    def execute(self, probate_id: str, will_id: str) -> dict:
         key = will_id.strip().lower()
         will = self._held(key)
-        verdict = gl.contract.get_at(_address(probate)).view().verdict(probate_id.strip().lower())
+        if self.probate.as_hex.lower() == '0x' + '00' * 20:
+            raise gl.vm.UserError('no court has been named yet')
+        verdict = gl.contract.get_at(self.probate).view().verdict(probate_id.strip().lower())
         if str(verdict['will_id']).lower() != key:
             raise gl.vm.UserError('that probate is about a different will')
         if str(verdict['owner']).lower() != will.owner.as_hex.lower():
@@ -203,6 +223,10 @@ class WillContract(gl.contract.Contract):
         self.committed = self.committed - amount
         _pay(will.successor, amount)
         return _as_dict(key, will)
+
+    @gl.public.view
+    def settings(self) -> dict:
+        return {'pulse': self.pulse.as_hex, 'probate': self.probate.as_hex, 'founder': self.founder.as_hex}
 
     @gl.public.view
     def get_will(self, will_id: str) -> dict:
@@ -238,6 +262,9 @@ class WillContract(gl.contract.Contract):
 
 def _stamp() -> str:
     return str(gl.message.raw['datetime'])
+
+def _zero() -> Address:
+    return Address('0x' + '00' * 20)
 
 def _address(value) -> Address:
     if hasattr(value, 'as_hex'):

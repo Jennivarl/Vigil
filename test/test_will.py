@@ -49,9 +49,12 @@ def stubs(direct_vm):
 
 @pytest.fixture
 def will(direct_vm, direct_deploy, stubs):
-    contract = direct_deploy(BUNDLE)
-    direct_vm.strict_mocks = False
     set_date(direct_vm, NOW)
+    with direct_vm.prank(OWNER):
+        contract = direct_deploy(BUNDLE, pulse=PULSE_AT)
+    direct_vm.strict_mocks = False
+    with direct_vm.prank(OWNER):
+        contract.bind_probate(PROBATE_AT)
     return contract
 
 
@@ -59,7 +62,7 @@ def write_will(vm, will, who=OWNER, amount=DEPOSIT, successor=None, days=SILENCE
     vm.value = amount
     try:
         with vm.prank(who):
-            return will.write(PULSE_AT, PULSE_ID, successor or ("0x" + HEIR.hex()), days)
+            return will.write(PULSE_ID, successor or ("0x" + HEIR.hex()), days)
     finally:
         vm.value = 0
 
@@ -155,7 +158,7 @@ def test_a_cancelled_will_cannot_be_executed(direct_vm, will, stubs):
     with direct_vm.prank(OWNER):
         will.cancel(WILL_ID)
     with direct_vm.expect_revert("already cancelled"):
-        will.execute(PROBATE_AT, CASE_ID, WILL_ID)
+        will.execute(CASE_ID, WILL_ID)
     assert len(stubs.transfers) == 1
 
 
@@ -168,7 +171,7 @@ def test_a_ripe_probate_pays_the_successor(direct_vm, will, stubs):
     write_will(direct_vm, will)
     set_date(direct_vm, LATER)
 
-    got = will.execute(PROBATE_AT, CASE_ID, WILL_ID)
+    got = will.execute(CASE_ID, WILL_ID)
     assert got["state"] == "paid"
     assert stubs.transfers == [{"to": HEIR, "value": DEPOSIT, "kind": EVM_PAY}]
     assert will.reserves()["committed"] == "0"
@@ -180,7 +183,7 @@ def test_a_probate_that_is_not_ripe_pays_nobody(direct_vm, will, stubs, state):
     stubs.set_verdict(state=state)
     set_date(direct_vm, LATER)
 
-    got = will.execute(PROBATE_AT, CASE_ID, WILL_ID)
+    got = will.execute(CASE_ID, WILL_ID)
     assert got["state"] == "held"
     assert stubs.transfers == []
 
@@ -196,7 +199,7 @@ def test_an_owner_seen_since_probate_opened_keeps_their_money(direct_vm, will, s
     stubs.set_pulse(last_alive="2026-05-02T09:00:00Z")  # they came back
     set_date(direct_vm, LATER)
 
-    got = will.execute(PROBATE_AT, CASE_ID, WILL_ID)
+    got = will.execute(CASE_ID, WILL_ID)
     assert got["state"] == "held"
     assert "seen since probate opened" in got["reason"]
     assert stubs.transfers == []
@@ -207,21 +210,21 @@ def test_a_probate_about_a_different_will_is_refused(direct_vm, will, stubs):
     write_will(direct_vm, will)
     stubs.set_verdict(will_id="0x" + STRANGER.hex() + "|someone-else")
     with direct_vm.expect_revert("different will"):
-        will.execute(PROBATE_AT, CASE_ID, WILL_ID)
+        will.execute(CASE_ID, WILL_ID)
 
 
 def test_a_probate_naming_a_different_owner_is_refused(direct_vm, will, stubs):
     write_will(direct_vm, will)
     stubs.set_verdict(owner="0x" + STRANGER.hex())
     with direct_vm.expect_revert("different owner"):
-        will.execute(PROBATE_AT, CASE_ID, WILL_ID)
+        will.execute(CASE_ID, WILL_ID)
 
 
 def test_a_probate_watching_a_different_pulse_is_refused(direct_vm, will, stubs):
     write_will(direct_vm, will)
     stubs.set_verdict(pulse_id="0xdead:other")
     with direct_vm.expect_revert("different pulse"):
-        will.execute(PROBATE_AT, CASE_ID, WILL_ID)
+        will.execute(CASE_ID, WILL_ID)
 
 
 def test_an_unreadable_timestamp_pays_nobody(direct_vm, will, stubs):
@@ -229,7 +232,7 @@ def test_an_unreadable_timestamp_pays_nobody(direct_vm, will, stubs):
     stubs.set_pulse(last_alive="not a timestamp")
     set_date(direct_vm, LATER)
 
-    got = will.execute(PROBATE_AT, CASE_ID, WILL_ID)
+    got = will.execute(CASE_ID, WILL_ID)
     assert got["state"] == "held"
     assert stubs.transfers == []
 
@@ -237,10 +240,10 @@ def test_an_unreadable_timestamp_pays_nobody(direct_vm, will, stubs):
 def test_a_will_pays_out_exactly_once(direct_vm, will, stubs):
     write_will(direct_vm, will)
     set_date(direct_vm, LATER)
-    will.execute(PROBATE_AT, CASE_ID, WILL_ID)
+    will.execute(CASE_ID, WILL_ID)
 
     with direct_vm.expect_revert("already paid"):
-        will.execute(PROBATE_AT, CASE_ID, WILL_ID)
+        will.execute(CASE_ID, WILL_ID)
     with direct_vm.prank(OWNER):
         with direct_vm.expect_revert("already paid"):
             will.cancel(WILL_ID)
@@ -251,7 +254,7 @@ def test_anyone_may_execute_because_nothing_they_supply_changes_it(direct_vm, wi
     write_will(direct_vm, will)
     set_date(direct_vm, LATER)
     with direct_vm.prank(STRANGER):
-        assert will.execute(PROBATE_AT, CASE_ID, WILL_ID)["state"] == "paid"
+        assert will.execute(CASE_ID, WILL_ID)["state"] == "paid"
     assert stubs.transfers == [{"to": HEIR, "value": DEPOSIT, "kind": EVM_PAY}]
 
 
@@ -259,3 +262,51 @@ def test_the_limits_are_published_rather_than_implied(will):
     got = will.terms()
     assert got["min_silence_days"] == "30"
     assert got["max_silence_days"] == "3650"
+
+
+# ----------------------------------------------------------------------
+# the contracts this one believes
+#
+# An earlier version took the court's address as an argument to `execute`,
+# and a stranger could pass a contract of their own that returned a ripe
+# verdict, draining a living owner's will on demand. These hold the fix in
+# place.
+# ----------------------------------------------------------------------
+
+
+def test_the_court_and_the_pulse_are_fixed_not_chosen_by_a_caller(direct_vm, will):
+    got = will.settings()
+    assert got["pulse"].lower() == PULSE_AT
+    assert got["probate"].lower() == PROBATE_AT
+
+
+def test_the_court_can_only_be_named_once(direct_vm, will):
+    with direct_vm.prank(OWNER):
+        with direct_vm.expect_revert("already named"):
+            will.bind_probate("0x" + "99" * 20)
+
+
+def test_nobody_but_the_deployer_may_name_the_court(direct_vm, direct_deploy, stubs):
+    set_date(direct_vm, NOW)
+    with direct_vm.prank(OWNER):
+        fresh = direct_deploy(BUNDLE, pulse=PULSE_AT)
+    direct_vm.strict_mocks = False
+    with direct_vm.prank(STRANGER):
+        with direct_vm.expect_revert("only whoever deployed this"):
+            fresh.bind_probate(PROBATE_AT)
+
+
+def test_nothing_executes_before_a_court_is_named(direct_vm, direct_deploy, stubs):
+    set_date(direct_vm, NOW)
+    with direct_vm.prank(OWNER):
+        fresh = direct_deploy(BUNDLE, pulse=PULSE_AT)
+    direct_vm.strict_mocks = False
+    direct_vm.value = DEPOSIT
+    try:
+        with direct_vm.prank(OWNER):
+            fresh.write(PULSE_ID, "0x" + HEIR.hex(), SILENCE_DAYS)
+    finally:
+        direct_vm.value = 0
+    with direct_vm.expect_revert("no court has been named"):
+        fresh.execute(CASE_ID, WILL_ID)
+    assert stubs.transfers == []

@@ -107,7 +107,7 @@ if (step === "register") {
   await write(PULSE, "ping", [rest[0]]);
 } else if (step === "write") {
   const [pulseId, successor, days, amount] = rest;
-  await write(WILL, "write", [PULSE, pulseId, successor, Number(days)], gen(amount));
+  await write(WILL, "write", [pulseId, successor, Number(days)], gen(amount));
 } else if (step === "cancel") {
   const before = await view(WILL, "get_will", [rest[0]]);
   console.log("owner before", fmt(await balance(before.owner)));
@@ -116,12 +116,12 @@ if (step === "register") {
   console.log("owner after ", fmt(await balance(before.owner)));
   console.log(`=> ${after.state}: ${after.reason}`);
 } else if (step === "open") {
-  await write(PROBATE, "open", [WILL, rest[0]]);
+  await write(PROBATE, "open", [rest[0]]);
 } else if (step === "execute") {
   const [caseId, willId] = rest;
   const before = await view(WILL, "get_will", [willId]);
   console.log("successor before", fmt(await balance(before.successor)));
-  await write(WILL, "execute", [PROBATE, caseId, willId], 0n, before.successor);
+  await write(WILL, "execute", [caseId, willId], 0n, before.successor);
   const after = await view(WILL, "get_will", [willId]);
   console.log("successor after ", fmt(await balance(before.successor)));
   console.log(`=> ${after.state}: ${after.reason}`);
