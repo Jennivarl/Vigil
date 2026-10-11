@@ -1,0 +1,17 @@
+{
+  "network": "GenLayer Studio Next",
+  "chainId": 61997,
+  "rpc": "https://studio-next.genlayer.com/api",
+  "explorer": "https://explorer-studio-dev.genlayer.com",
+  "pulse": "0xD37f94D4f12e5eE099735aF0934605fC54189cF5",
+  "will": "0x38e6BA32d39448B0b2c6eA5e987A9d78f16cea7C",
+  "probate": "0x9539dD68BF410bB1d59B4aa573223dD8f803F9C8",
+  "witness": "0xd1D5cD25676288F68E317E19CB0Ce8De67d96834",
+  "deployTx": {
+    "pulse": "0x908591dbee03f85543af3dfb9f6eade647e05dfbd31b07e4283a7e9c7b2810c9",
+    "will": "0x4cf245530bc2a84f065b7c0c4b2c125ae3fdf7157257ed19c484fbbd80a8830d",
+    "probate": "0x9a7a4941306b5c37c9ef6fdbc2d0262ed784b4822aff74214b3d2e16fe6a2bc7",
+    "witness": "0xa7e29c8bab10fc5435f7e0e7b94de76a6a0d44062f2dfadd96432663db4f6e7d"
+  },
+  "deployed": "2026-10-11"
+}
