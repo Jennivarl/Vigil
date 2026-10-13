@@ -5,6 +5,8 @@ Comments removed to keep the deploy small; read them in those files."""
 ALIVE = 'alive'
 SILENT = 'silent'
 UNREACHABLE = 'unreachable'
+MIN_SILENT_RUNS = 3
+SILENCE_FRESH_SECONDS = 7 * 24 * 3600
 _MAX_HOST = 100
 _MAX_PATH = 200
 _MAX_MARKER = 200
@@ -105,6 +107,7 @@ class Probate:
     pulse_id: str
     silence_days: u256
     last_alive_at_open: str
+    silent_runs_at_open: str
     opened_at: str
     halted: bool
     halted_at: str
@@ -137,11 +140,19 @@ class ProbateContract(gl.contract.Contract):
             raise gl.vm.UserError('how long the owner has been silent cannot be worked out')
         if silent < wanted:
             raise gl.vm.UserError(f'the owner has been silent {silent} days of the {wanted} required')
+        runs = int(str(record['silent_runs']))
+        if runs < MIN_SILENT_RUNS:
+            raise gl.vm.UserError(f'only {runs} observations found the marker gone, and {MIN_SILENT_RUNS} are required')
+        age = int(str(record['silence_age_seconds']))
+        if age < 0:
+            raise gl.vm.UserError('no observation has ever found the marker gone')
+        if age > SILENCE_FRESH_SECONDS:
+            raise gl.vm.UserError(f'the last confirmed silence is {age} seconds old; observe it again')
         case_id = at.as_hex.lower() + '|' + key
         if case_id in self.cases and (not self.cases[case_id].halted):
             raise gl.vm.UserError('probate is already open on that will')
         first_time = case_id not in self.cases
-        self.cases[case_id] = Probate(opener=gl.message.sender_address, will=at, will_id=key, owner=_address(terms['owner']), successor=successor, pulse=pulse_at, pulse_id=pulse_id, silence_days=wanted, last_alive_at_open=str(record['last_alive']), opened_at=_stamp(), halted=False, halted_at='', reason=f'grace of {GRACE_DAYS} days is running; one signed transaction from the owner ends it')
+        self.cases[case_id] = Probate(opener=gl.message.sender_address, will=at, will_id=key, owner=_address(terms['owner']), successor=successor, pulse=pulse_at, pulse_id=pulse_id, silence_days=wanted, last_alive_at_open=str(record['last_alive']), silent_runs_at_open=str(record['silent_runs']), opened_at=_stamp(), halted=False, halted_at='', reason=f'grace of {GRACE_DAYS} days is running; one signed transaction from the owner ends it')
         if first_time:
             self.case_ids.append(case_id)
         return _as_dict(case_id, self.cases[case_id], _now())
@@ -174,7 +185,7 @@ class ProbateContract(gl.contract.Contract):
 
     @gl.public.view
     def settings(self) -> dict:
-        return {'will': self.will.as_hex, 'grace_days': str(GRACE_DAYS)}
+        return {'will': self.will.as_hex, 'grace_days': str(GRACE_DAYS), 'runs_required': str(MIN_SILENT_RUNS), 'silence_fresh_for_seconds': str(SILENCE_FRESH_SECONDS)}
 
     @gl.public.view
     def case_list(self) -> list:
@@ -208,4 +219,4 @@ def _as_dict(key: str, case: Probate, now) -> dict:
         state = STATE_RIPE
     else:
         state = STATE_OPEN
-    return {'case_id': key, 'state': state, 'opener': case.opener.as_hex, 'will': case.will.as_hex, 'will_id': case.will_id, 'owner': case.owner.as_hex, 'successor': case.successor.as_hex, 'pulse': case.pulse.as_hex, 'pulse_id': case.pulse_id, 'silence_days': str(case.silence_days), 'last_alive_at_open': case.last_alive_at_open, 'opened_at': case.opened_at, 'halted': case.halted, 'halted_at': case.halted_at, 'grace_days': str(GRACE_DAYS), 'waited_days': str(waited if waited is not None else -1), 'reason': case.reason}
+    return {'case_id': key, 'state': state, 'opener': case.opener.as_hex, 'will': case.will.as_hex, 'will_id': case.will_id, 'owner': case.owner.as_hex, 'successor': case.successor.as_hex, 'pulse': case.pulse.as_hex, 'pulse_id': case.pulse_id, 'silence_days': str(case.silence_days), 'last_alive_at_open': case.last_alive_at_open, 'silent_runs_at_open': case.silent_runs_at_open, 'opened_at': case.opened_at, 'halted': case.halted, 'halted_at': case.halted_at, 'grace_days': str(GRACE_DAYS), 'waited_days': str(waited if waited is not None else -1), 'reason': case.reason}

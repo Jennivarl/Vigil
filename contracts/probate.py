@@ -30,7 +30,7 @@ from dataclasses import dataclass
 import genlayer as gl
 from genlayer.types import *
 
-from contracts.liveness import days_between, epoch_seconds
+from contracts.liveness import MIN_SILENT_RUNS, SILENCE_FRESH_SECONDS, days_between, epoch_seconds
 
 STATE_OPEN = "open"
 STATE_HALTED = "halted"
@@ -54,6 +54,8 @@ class Probate:
     silence_days: u256
     # What PULSE said when this was opened, kept so the halt is meaningful.
     last_alive_at_open: str
+    # And how many observations had agreed the marker was gone by then.
+    silent_runs_at_open: str
     opened_at: str
     halted: bool
     halted_at: str
@@ -102,6 +104,24 @@ class ProbateContract(gl.contract.Contract):
         if silent < wanted:
             raise gl.vm.UserError(f"the owner has been silent {silent} days of the {wanted} required")
 
+        # Time passing is not evidence. A pulse nobody ever looked at would
+        # otherwise become claimable purely because it is old, which is
+        # absence of evidence doing the work of evidence of absence.
+        # Eligibility needs consensus to have actually agreed, recently and
+        # repeatedly, that the marker is gone.
+        runs = int(str(record["silent_runs"]))
+        if runs < MIN_SILENT_RUNS:
+            raise gl.vm.UserError(
+                f"only {runs} observations found the marker gone, and {MIN_SILENT_RUNS} are required"
+            )
+        age = int(str(record["silence_age_seconds"]))
+        if age < 0:
+            raise gl.vm.UserError("no observation has ever found the marker gone")
+        if age > SILENCE_FRESH_SECONDS:
+            raise gl.vm.UserError(
+                f"the last confirmed silence is {age} seconds old; observe it again"
+            )
+
         case_id = at.as_hex.lower() + "|" + key
         if case_id in self.cases and not self.cases[case_id].halted:
             raise gl.vm.UserError("probate is already open on that will")
@@ -117,6 +137,7 @@ class ProbateContract(gl.contract.Contract):
             pulse_id=pulse_id,
             silence_days=wanted,
             last_alive_at_open=str(record["last_alive"]),
+            silent_runs_at_open=str(record["silent_runs"]),
             opened_at=_stamp(),
             halted=False,
             halted_at="",
@@ -176,7 +197,12 @@ class ProbateContract(gl.contract.Contract):
 
     @gl.public.view
     def settings(self) -> dict:
-        return {"will": self.will.as_hex, "grace_days": str(GRACE_DAYS)}
+        return {
+            "will": self.will.as_hex,
+            "grace_days": str(GRACE_DAYS),
+            "runs_required": str(MIN_SILENT_RUNS),
+            "silence_fresh_for_seconds": str(SILENCE_FRESH_SECONDS),
+        }
 
     @gl.public.view
     def case_list(self) -> list:
@@ -231,6 +257,7 @@ def _as_dict(key: str, case: Probate, now) -> dict:
         "pulse_id": case.pulse_id,
         "silence_days": str(case.silence_days),
         "last_alive_at_open": case.last_alive_at_open,
+        "silent_runs_at_open": case.silent_runs_at_open,
         "opened_at": case.opened_at,
         "halted": case.halted,
         "halted_at": case.halted_at,

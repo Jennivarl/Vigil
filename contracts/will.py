@@ -31,7 +31,7 @@ from dataclasses import dataclass
 import genlayer as gl
 from genlayer.types import *
 
-from contracts.liveness import epoch_seconds
+from contracts.liveness import MIN_SILENT_RUNS, SILENCE_FRESH_SECONDS, epoch_seconds
 
 STATE_HELD = "held"
 STATE_PAID = "paid"
@@ -223,7 +223,7 @@ class WillContract(gl.contract.Contract):
         if state != "ripe":
             return self._undecided(key, will, "the probate is " + state + ": " + str(verdict["reason"]))
 
-        # The question that actually matters, asked again and asked here.
+        # The questions that actually matter, asked again and asked here.
         record = gl.contract.get_at(will.pulse).view().get_pulse(will.pulse_id)
         seen = epoch_seconds(str(record["last_alive"]))
         opened = epoch_seconds(str(verdict["opened_at"]))
@@ -232,6 +232,26 @@ class WillContract(gl.contract.Contract):
         if seen > opened:
             return self._undecided(
                 key, will, "the owner has been seen since probate opened, so nothing is owed"
+            )
+
+        # Nothing is paid on the age of a stored timestamp alone. Consensus
+        # has to have agreed, recently and more than once, that the marker
+        # is actually gone. An unreachable observation advances neither the
+        # count nor the clock, so a host merely being down can never carry
+        # a will over the line.
+        runs = int(str(record["silent_runs"]))
+        if runs < MIN_SILENT_RUNS:
+            return self._undecided(
+                key,
+                will,
+                f"only {runs} observations found the marker gone, and {MIN_SILENT_RUNS} are required",
+            )
+        age = int(str(record["silence_age_seconds"]))
+        if age < 0:
+            return self._undecided(key, will, "no observation has ever found the marker gone")
+        if age > SILENCE_FRESH_SECONDS:
+            return self._undecided(
+                key, will, f"the last confirmed silence is {age} seconds old; observe it again"
             )
 
         amount = int(will.amount)
@@ -272,6 +292,8 @@ class WillContract(gl.contract.Contract):
         return {
             "min_silence_days": str(MIN_SILENCE_DAYS),
             "max_silence_days": str(MAX_SILENCE_DAYS),
+            "runs_required": str(MIN_SILENT_RUNS),
+            "silence_fresh_for_seconds": str(SILENCE_FRESH_SECONDS),
         }
 
     def _held(self, key: str) -> Will:

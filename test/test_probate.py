@@ -13,6 +13,8 @@ import pytest
 from test.stubs import (
     CASE_ID,
     GRACE_DAYS,
+    MIN_SILENT_RUNS,
+    SILENCE_FRESH_SECONDS,
     HEIR,
     OWNER,
     PULSE_ID,
@@ -219,3 +221,64 @@ def test_the_grace_period_is_published_rather_than_implied(probate):
 def test_the_custody_contract_is_fixed_not_chosen_by_a_caller(probate):
     """A court that hears any contract's wills is a court anyone can forge."""
     assert probate.settings()["will"].lower() == WILL_AT
+
+
+# ----------------------------------------------------------------------
+# time passing is not evidence
+#
+# A steward's words: probate must not rely only on the age of a stored
+# last-alive timestamp. It needs a fresh, consensus-grounded confirmation
+# that the marker is actually silent, and an unreachable result must never
+# advance eligibility. These hold that in place.
+# ----------------------------------------------------------------------
+
+
+def test_a_pulse_nobody_ever_observed_cannot_be_probated(direct_vm, probate, stubs):
+    """
+    The hole this closes. `silent_days` grows on its own, so without this a
+    pulse that was registered and then ignored would become claimable purely
+    because it got old.
+    """
+    stubs.set_pulse(silent_days="400", silent_runs="0", silence_age_seconds="-1", silence_confirmed=False)
+    with direct_vm.expect_revert("0 observations found the marker gone"):
+        open_case(direct_vm, probate)
+
+
+def test_one_observation_is_not_enough(direct_vm, probate, stubs):
+    stubs.set_pulse(silent_runs="1", silence_age_seconds="60")
+    with direct_vm.expect_revert("1 observations found the marker gone"):
+        open_case(direct_vm, probate)
+
+
+def test_a_marker_that_is_still_alive_cannot_be_probated(direct_vm, probate, stubs):
+    """An `alive` observation resets the run to zero, which blocks this."""
+    stubs.set_pulse(last_outcome="alive", silent_runs="0", silence_age_seconds="-1")
+    with direct_vm.expect_revert("0 observations found the marker gone"):
+        open_case(direct_vm, probate)
+
+
+def test_a_confirmation_that_has_gone_stale_cannot_be_probated(direct_vm, probate, stubs):
+    """
+    Eligibility resting on an observation from months ago is not a fresh
+    confirmation of anything. Somebody has to look again.
+    """
+    stubs.set_pulse(silence_age_seconds=str(30 * 24 * 3600))
+    with direct_vm.expect_revert("observe it again"):
+        open_case(direct_vm, probate)
+
+
+def test_exactly_the_freshness_limit_is_still_good(direct_vm, probate, stubs):
+    stubs.set_pulse(silence_age_seconds=str(SILENCE_FRESH_SECONDS))
+    assert open_case(direct_vm, probate)["state"] == "open"
+
+
+def test_the_requirement_is_published_rather_than_implied(probate):
+    got = probate.settings()
+    assert got["runs_required"] == str(MIN_SILENT_RUNS)
+    assert got["silence_fresh_for_seconds"] == str(SILENCE_FRESH_SECONDS)
+
+
+def test_probate_records_how_many_observations_backed_it(direct_vm, probate):
+    """So the evidence a handover rested on can be audited afterwards."""
+    got = open_case(direct_vm, probate)
+    assert got["silent_runs_at_open"] == "3"

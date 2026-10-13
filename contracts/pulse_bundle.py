@@ -5,6 +5,8 @@ Comments removed to keep the deploy small; read them in those files."""
 ALIVE = 'alive'
 SILENT = 'silent'
 UNREACHABLE = 'unreachable'
+MIN_SILENT_RUNS = 3
+SILENCE_FRESH_SECONDS = 7 * 24 * 3600
 _MAX_HOST = 100
 _MAX_PATH = 200
 _MAX_MARKER = 200
@@ -100,6 +102,7 @@ class Pulse:
     last_alive: str
     last_by: str
     silent_runs: u256
+    last_silent_at: str
     last_observed: str
     last_outcome: str
     note: str
@@ -130,7 +133,7 @@ class PulseContract(gl.contract.Contract):
         if pulse_id in self.pulses:
             raise gl.vm.UserError('that pulse already exists and cannot be changed')
         now = _stamp()
-        self.pulses[pulse_id] = Pulse(owner=owner, name=label, url=url_for(clean_host, clean_path), marker=text, registered_at=now, last_alive=now, last_by='ping', silent_runs=0, last_observed='', last_outcome='', note='registered')
+        self.pulses[pulse_id] = Pulse(owner=owner, name=label, url=url_for(clean_host, clean_path), marker=text, registered_at=now, last_alive=now, last_by='ping', silent_runs=0, last_silent_at='', last_observed='', last_outcome='', note='registered')
         self.pulse_ids.append(pulse_id)
         return _as_dict(pulse_id, self.pulses[pulse_id], _now())
 
@@ -143,6 +146,7 @@ class PulseContract(gl.contract.Contract):
         pulse.last_alive = _stamp()
         pulse.last_by = 'ping'
         pulse.silent_runs = 0
+        pulse.last_silent_at = ''
         pulse.note = 'the owner signed'
         self.pulses[key] = pulse
         return _as_dict(key, pulse, _now())
@@ -181,8 +185,10 @@ class PulseContract(gl.contract.Contract):
             pulse.last_alive = now
             pulse.last_by = 'observed'
             pulse.silent_runs = 0
+            pulse.last_silent_at = ''
         elif outcome == SILENT:
             pulse.silent_runs = pulse.silent_runs + 1
+            pulse.last_silent_at = now
         self.pulses[key] = pulse
         return _as_dict(key, pulse, _now())
 
@@ -239,4 +245,9 @@ def _as_dict(key: str, pulse: Pulse, now) -> dict:
     days = -1
     if seen is not None and now is not None and (now >= seen):
         days = (now - seen) // 86400
-    return {'pulse_id': key, 'owner': pulse.owner.as_hex, 'name': pulse.name, 'url': pulse.url, 'marker': pulse.marker, 'registered_at': pulse.registered_at, 'last_alive': pulse.last_alive, 'last_by': pulse.last_by, 'silent_runs': str(pulse.silent_runs), 'last_observed': pulse.last_observed, 'last_outcome': pulse.last_outcome, 'note': pulse.note, 'silent_days': str(days)}
+    quiet = epoch_seconds(pulse.last_silent_at) if pulse.last_silent_at else None
+    silence_age = -1
+    if quiet is not None and now is not None and (now >= quiet):
+        silence_age = now - quiet
+    confirmed = int(pulse.silent_runs) >= MIN_SILENT_RUNS and silence_age >= 0 and (silence_age <= SILENCE_FRESH_SECONDS)
+    return {'pulse_id': key, 'owner': pulse.owner.as_hex, 'name': pulse.name, 'url': pulse.url, 'marker': pulse.marker, 'registered_at': pulse.registered_at, 'last_alive': pulse.last_alive, 'last_by': pulse.last_by, 'silent_runs': str(pulse.silent_runs), 'last_observed': pulse.last_observed, 'last_outcome': pulse.last_outcome, 'note': pulse.note, 'silent_days': str(days), 'last_silent_at': pulse.last_silent_at, 'silence_age_seconds': str(silence_age), 'silence_confirmed': confirmed, 'runs_required': str(MIN_SILENT_RUNS), 'silence_fresh_for_seconds': str(SILENCE_FRESH_SECONDS)}

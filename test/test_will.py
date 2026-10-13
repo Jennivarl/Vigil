@@ -310,3 +310,69 @@ def test_nothing_executes_before_a_court_is_named(direct_vm, direct_deploy, stub
     with direct_vm.expect_revert("no court has been named"):
         fresh.execute(CASE_ID, WILL_ID)
     assert stubs.transfers == []
+
+
+# ----------------------------------------------------------------------
+# WILL asks for the evidence itself
+#
+# PROBATE reports the clock. It does not get the last word on whether the
+# marker is actually gone, because this is the contract that moves money.
+# ----------------------------------------------------------------------
+
+
+def test_an_unobserved_pulse_pays_nobody_even_with_a_ripe_probate(direct_vm, will, stubs):
+    """
+    Even if a court says ripe, a will nobody ever confirmed silent does not
+    pay. Time passing is not evidence.
+    """
+    write_will(direct_vm, will)
+    stubs.set_pulse(silent_days="400", silent_runs="0", silence_age_seconds="-1")
+    set_date(direct_vm, LATER)
+
+    got = will.execute(CASE_ID, WILL_ID)
+    assert got["state"] == "held"
+    assert "0 observations found the marker gone" in got["reason"]
+    assert stubs.transfers == []
+
+
+def test_a_still_alive_marker_pays_nobody(direct_vm, will, stubs):
+    write_will(direct_vm, will)
+    stubs.set_pulse(last_outcome="alive", silent_runs="0", silence_age_seconds="-1")
+    set_date(direct_vm, LATER)
+
+    got = will.execute(CASE_ID, WILL_ID)
+    assert got["state"] == "held"
+    assert stubs.transfers == []
+
+
+def test_too_few_confirmations_pay_nobody(direct_vm, will, stubs):
+    write_will(direct_vm, will)
+    stubs.set_pulse(silent_runs="2")
+    set_date(direct_vm, LATER)
+
+    got = will.execute(CASE_ID, WILL_ID)
+    assert got["state"] == "held"
+    assert "2 observations" in got["reason"]
+    assert stubs.transfers == []
+
+
+def test_a_stale_confirmation_pays_nobody(direct_vm, will, stubs):
+    """Somebody has to look again before an estate moves."""
+    write_will(direct_vm, will)
+    stubs.set_pulse(silence_age_seconds=str(60 * 24 * 3600))
+    set_date(direct_vm, LATER)
+
+    got = will.execute(CASE_ID, WILL_ID)
+    assert got["state"] == "held"
+    assert "observe it again" in got["reason"]
+    assert stubs.transfers == []
+
+
+def test_a_will_still_pays_once_the_evidence_is_there(direct_vm, will, stubs):
+    """The fix refuses the wrong cases without breaking the right one."""
+    write_will(direct_vm, will)
+    set_date(direct_vm, LATER)
+
+    got = will.execute(CASE_ID, WILL_ID)
+    assert got["state"] == "paid"
+    assert stubs.transfers == [{"to": HEIR, "value": DEPOSIT, "kind": EVM_PAY}]

@@ -19,23 +19,35 @@ No model is involved anywhere. Validators fetch and compare strings.
 |---|---|
 | Network | GenLayer Studio Next, chain id 61997, `https://studio-next.genlayer.com/api` |
 | Engine | Consensus v0.6, GenVM v0.3, runner `py-genlayer:5jycge...` |
-| PULSE | [`0x9467cE5dfD80FaE1a0e958413A84396dA43b51cB`](https://explorer-studio-dev.genlayer.com/address/0x9467cE5dfD80FaE1a0e958413A84396dA43b51cB) |
-| WILL | [`0x7bB9e11B20f749Cfc17B925BeeE538b4a86313fe`](https://explorer-studio-dev.genlayer.com/address/0x7bB9e11B20f749Cfc17B925BeeE538b4a86313fe) |
-| PROBATE | [`0x19F9CA63f06BC1cCeaCde0CFc486CA14b551967c`](https://explorer-studio-dev.genlayer.com/address/0x19F9CA63f06BC1cCeaCde0CFc486CA14b551967c) |
-| WITNESS | [`0xdeF02b8b5DCa1E03998e2B16E305E13783fFACb7`](https://explorer-studio-dev.genlayer.com/address/0xdeF02b8b5DCa1E03998e2B16E305E13783fFACb7) |
-| Tests | 148, `python -m pytest -q` |
+| PULSE | [`0xEB205BCC74668988E9c403C3E5914D5feFeB720f`](https://explorer-studio-dev.genlayer.com/address/0xEB205BCC74668988E9c403C3E5914D5feFeB720f) |
+| WILL | [`0xCA1e55422056c9108e54F68A2e77CD3BcDbe3427`](https://explorer-studio-dev.genlayer.com/address/0xCA1e55422056c9108e54F68A2e77CD3BcDbe3427) |
+| PROBATE | [`0xBCe1BE78D5EE98b8d306A7123520862DcD51A654`](https://explorer-studio-dev.genlayer.com/address/0xBCe1BE78D5EE98b8d306A7123520862DcD51A654) |
+| WITNESS | [`0x68D76B0621268CA918557fE31D4bcE5814d7c5ef`](https://explorer-studio-dev.genlayer.com/address/0x68D76B0621268CA918557fE31D4bcE5814d7c5ef) |
+| Tests | 165, `python -m pytest -q` |
 
 ---
 
-## An outage is not an absence
+## Time passing is not evidence
 
-| outcome | what happened | what it does to the clock |
-|---|---|---|
-| `alive` | fetched, and the marker was there | resets everything |
-| `silent` | fetched, and the marker was gone | advances the run by one |
-| `unreachable` | could not be fetched at all | **nothing at all** |
+The first version of this got the central thing wrong, and a steward caught it. Eligibility was computed from the age of a stored `last_alive` timestamp, which grows on its own. A pulse that was registered and then **never looked at by anybody** would quietly become claimable, purely because it got old. That is absence of evidence doing the work of evidence of absence, and it is the only failure here that would actually lose somebody their estate.
 
-That third row is the whole design. Everything here is triggered by absence, and if an unreachable host counted as silence then a server having a bad afternoon would advance somebody towards losing their estate. So an unreachable observation moves nothing: not the run of silence, not the last sign of life. Nobody learned anything, and the record says so.
+A handover now requires consensus to have agreed, repeatedly and recently, that the marker is really gone:
+
+| requirement | why |
+|---|---|
+| **three** consecutive observations found the marker gone | one bad fetch is not a death |
+| the most recent of them is **less than 7 days old** | eligibility resting on last year's observation confirms nothing about now |
+| the owner has been silent for the threshold they chose | the arrangement they actually wrote |
+
+All three, every time. And each of the three is checked twice: once by PROBATE before the clock can start, and again by WILL before any money moves.
+
+| observation | runs | last confirmed silence | effect on a handover |
+|---|---|---|---|
+| `alive` | reset to 0 | cleared | blocks it entirely |
+| `silent` | +1 | set to now | the only thing that advances it |
+| `unreachable` | **unchanged** | **unchanged** | advances nothing, destroys nothing |
+
+That last row is the one the whole design turns on. An unreachable host teaches nobody anything. It must not push a handover forward, and equally it must not let a site going down erase evidence that was already agreed.
 
 A validator that could not reach the host agrees only that it was unreachable, and will not attest to any other outcome however plausible.
 
@@ -157,7 +169,7 @@ The deploys, in dependency order: PULSE [`0x7b946902...`](https://explorer-studi
 ```sh
 python -m venv .venv && .venv/Scripts/pip install -r requirements.txt
 python -m deploy.build_bundle          # the four files that actually deploy
-python -m pytest -q                    # 148 tests, no chain and no network
+python -m pytest -q                    # 165 tests, no chain and no network
 ```
 
 The tests run the contracts in direct mode, in process. The watched document is answered from the test, so a test can produce states that are slow to arrange for real: years of silence, a host that is merely down, and an owner who reappears at the last possible moment.
@@ -202,7 +214,7 @@ deploy/chain.mjs            network, signing and payout fee allocations
 deploy/deploy.mjs           deploy one bundle
 deploy/verify.mjs           prove a live contract runs this exact bundle
 deploy/demo.mjs             drive the live copies
-test/                       148 tests
+test/                       165 tests
 ```
 
 GenVM loads a single source file with no access to siblings, so each bundle pastes a contract together with the pure module it imports. Comments and docstrings are stripped from the deployed copy, because a deploy costs gas per byte and a bundle over the cap returns a transaction hash and then simply does not exist. Edit the modules, never a bundle: a test regenerates them and fails if a committed copy has drifted.

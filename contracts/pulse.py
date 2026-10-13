@@ -40,6 +40,8 @@ from genlayer.types import *
 
 from contracts.liveness import (
     ALIVE,
+    MIN_SILENT_RUNS,
+    SILENCE_FRESH_SECONDS,
     SILENT,
     UNREACHABLE,
     epoch_seconds,
@@ -67,6 +69,9 @@ class Pulse:
     # Consecutive observations that found the marker gone. A ping resets it,
     # and an unreachable host never touches it.
     silent_runs: u256
+    # When the most recent agreed `silent` observation happened. This, not
+    # the age of `last_alive`, is what a handover has to rest on.
+    last_silent_at: str
     last_observed: str
     last_outcome: str
     note: str
@@ -122,6 +127,7 @@ class PulseContract(gl.contract.Contract):
             last_alive=now,
             last_by="ping",
             silent_runs=0,
+            last_silent_at="",
             last_observed="",
             last_outcome="",
             note="registered",
@@ -149,6 +155,7 @@ class PulseContract(gl.contract.Contract):
         pulse.last_alive = _stamp()
         pulse.last_by = "ping"
         pulse.silent_runs = 0
+        pulse.last_silent_at = ""
         pulse.note = "the owner signed"
         self.pulses[key] = pulse
         return _as_dict(key, pulse, _now())
@@ -202,8 +209,10 @@ class PulseContract(gl.contract.Contract):
             pulse.last_alive = now
             pulse.last_by = "observed"
             pulse.silent_runs = 0
+            pulse.last_silent_at = ""
         elif outcome == SILENT:
             pulse.silent_runs = pulse.silent_runs + 1
+            pulse.last_silent_at = now
         # An unreachable host advances nothing at all. Not the run of
         # silence, not the last sign of life. Nobody learned anything.
 
@@ -294,6 +303,19 @@ def _as_dict(key: str, pulse: Pulse, now) -> dict:
     days = -1
     if seen is not None and now is not None and now >= seen:
         days = (now - seen) // 86400
+
+    # How long ago consensus last agreed the marker was gone. -1 means
+    # never, which a consumer must read as "nobody has confirmed anything"
+    # and never as "a long time".
+    quiet = epoch_seconds(pulse.last_silent_at) if pulse.last_silent_at else None
+    silence_age = -1
+    if quiet is not None and now is not None and now >= quiet:
+        silence_age = now - quiet
+    confirmed = (
+        int(pulse.silent_runs) >= MIN_SILENT_RUNS
+        and silence_age >= 0
+        and silence_age <= SILENCE_FRESH_SECONDS
+    )
     return {
         "pulse_id": key,
         "owner": pulse.owner.as_hex,
@@ -308,4 +330,9 @@ def _as_dict(key: str, pulse: Pulse, now) -> dict:
         "last_outcome": pulse.last_outcome,
         "note": pulse.note,
         "silent_days": str(days),
+        "last_silent_at": pulse.last_silent_at,
+        "silence_age_seconds": str(silence_age),
+        "silence_confirmed": confirmed,
+        "runs_required": str(MIN_SILENT_RUNS),
+        "silence_fresh_for_seconds": str(SILENCE_FRESH_SECONDS),
     }

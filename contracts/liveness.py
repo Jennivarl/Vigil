@@ -23,6 +23,18 @@ ALIVE = "alive"
 SILENT = "silent"
 UNREACHABLE = "unreachable"
 
+# How many consecutive observations must find the marker gone before a
+# handover is even eligible. Time passing is not evidence: a pulse nobody
+# ever looked at must never become claimable just because it is old. Only
+# an agreed `silent` advances this count, an `alive` resets it to zero, and
+# an `unreachable` leaves it exactly where it was.
+MIN_SILENT_RUNS = 3
+
+# And the most recent of those must be recent. Eligibility that rests on an
+# observation from last year is not a fresh confirmation of anything, so a
+# successor has to show the marker is gone now, not that it once was.
+SILENCE_FRESH_SECONDS = 7 * 24 * 3600
+
 _MAX_HOST = 100
 _MAX_PATH = 200
 _MAX_MARKER = 200

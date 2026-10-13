@@ -5,6 +5,8 @@ Comments removed to keep the deploy small; read them in those files."""
 ALIVE = 'alive'
 SILENT = 'silent'
 UNREACHABLE = 'unreachable'
+MIN_SILENT_RUNS = 3
+SILENCE_FRESH_SECONDS = 7 * 24 * 3600
 _MAX_HOST = 100
 _MAX_PATH = 200
 _MAX_MARKER = 200
@@ -215,6 +217,14 @@ class WillContract(gl.contract.Contract):
             return self._undecided(key, will, 'a timestamp on this pulse could not be read')
         if seen > opened:
             return self._undecided(key, will, 'the owner has been seen since probate opened, so nothing is owed')
+        runs = int(str(record['silent_runs']))
+        if runs < MIN_SILENT_RUNS:
+            return self._undecided(key, will, f'only {runs} observations found the marker gone, and {MIN_SILENT_RUNS} are required')
+        age = int(str(record['silence_age_seconds']))
+        if age < 0:
+            return self._undecided(key, will, 'no observation has ever found the marker gone')
+        if age > SILENCE_FRESH_SECONDS:
+            return self._undecided(key, will, f'the last confirmed silence is {age} seconds old; observe it again')
         amount = int(will.amount)
         will.state = STATE_PAID
         will.decided_at = _stamp()
@@ -245,7 +255,7 @@ class WillContract(gl.contract.Contract):
 
     @gl.public.view
     def terms(self) -> dict:
-        return {'min_silence_days': str(MIN_SILENCE_DAYS), 'max_silence_days': str(MAX_SILENCE_DAYS)}
+        return {'min_silence_days': str(MIN_SILENCE_DAYS), 'max_silence_days': str(MAX_SILENCE_DAYS), 'runs_required': str(MIN_SILENT_RUNS), 'silence_fresh_for_seconds': str(SILENCE_FRESH_SECONDS)}
 
     def _held(self, key: str) -> Will:
         if key not in self.wills:

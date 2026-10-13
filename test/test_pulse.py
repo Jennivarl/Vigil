@@ -223,3 +223,80 @@ def test_validators_must_agree_on_the_reason_not_only_the_outcome(direct_vm, pul
     pulse.observe(PULSE_ID)
     assert direct_vm.run_validator(leader_result=leader(SILENT, "the page is gone")) is True
     assert direct_vm.run_validator(leader_result=leader(SILENT, "the page loaded without the marker")) is False
+
+
+# ----------------------------------------------------------------------
+# what counts as a confirmed silence
+# ----------------------------------------------------------------------
+
+
+def test_a_pulse_nobody_observed_has_confirmed_nothing(direct_vm, pulse):
+    """However old it gets. This is the whole point of tracking runs."""
+    set_date(direct_vm, "2027-06-01T09:00:00Z")
+    got = pulse.get_pulse(PULSE_ID)
+    assert got["silent_days"] == "516"
+    assert got["silent_runs"] == "0"
+    assert got["silence_age_seconds"] == "-1"
+    assert got["silence_confirmed"] is False
+
+
+def test_silence_is_confirmed_only_after_enough_observations(direct_vm, pulse):
+    set_date(direct_vm, DAY10)
+    serve(direct_vm, "gone")
+    pulse.observe(PULSE_ID)
+    assert pulse.get_pulse(PULSE_ID)["silence_confirmed"] is False
+    pulse.observe(PULSE_ID)
+    assert pulse.get_pulse(PULSE_ID)["silence_confirmed"] is False
+    pulse.observe(PULSE_ID)
+
+    got = pulse.get_pulse(PULSE_ID)
+    assert got["silent_runs"] == "3"
+    assert got["silence_confirmed"] is True
+    assert got["last_silent_at"] == DAY10
+
+
+def test_an_unreachable_host_leaves_the_confirmation_exactly_where_it_was(direct_vm, pulse):
+    """
+    Neither advancing nor destroying it. An outage teaches nobody anything,
+    so it must not push a handover forward, and it must not let a host that
+    goes down undo evidence already agreed.
+    """
+    set_date(direct_vm, DAY10)
+    serve(direct_vm, "gone")
+    for _ in range(3):
+        pulse.observe(PULSE_ID)
+    before = pulse.get_pulse(PULSE_ID)
+
+    serve(direct_vm, "oh dear", status=503)
+    pulse.observe(PULSE_ID)
+    after = pulse.get_pulse(PULSE_ID)
+
+    assert after["silent_runs"] == before["silent_runs"]
+    assert after["last_silent_at"] == before["last_silent_at"]
+    assert after["last_outcome"] == UNREACHABLE
+
+
+def test_the_owner_coming_back_destroys_the_confirmation(direct_vm, pulse):
+    set_date(direct_vm, DAY10)
+    serve(direct_vm, "gone")
+    for _ in range(3):
+        pulse.observe(PULSE_ID)
+    assert pulse.get_pulse(PULSE_ID)["silence_confirmed"] is True
+
+    with direct_vm.prank(OWNER):
+        pulse.ping(PULSE_ID)
+    got = pulse.get_pulse(PULSE_ID)
+    assert got["silence_confirmed"] is False
+    assert got["last_silent_at"] == ""
+
+
+def test_a_confirmation_goes_stale_on_its_own(direct_vm, pulse):
+    """A week old is fresh. A month old is a claim about last month."""
+    set_date(direct_vm, DAY10)
+    serve(direct_vm, "gone")
+    for _ in range(3):
+        pulse.observe(PULSE_ID)
+    assert pulse.get_pulse(PULSE_ID)["silence_confirmed"] is True
+
+    set_date(direct_vm, "2026-02-20T09:00:00Z")
+    assert pulse.get_pulse(PULSE_ID)["silence_confirmed"] is False

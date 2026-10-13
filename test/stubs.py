@@ -28,6 +28,8 @@ CASE_ID = WILL_AT.lower() + "|" + WILL_ID
 DEPOSIT = 1_000_000
 SILENCE_DAYS = 90
 GRACE_DAYS = 14
+MIN_SILENT_RUNS = 3
+SILENCE_FRESH_SECONDS = 7 * 24 * 3600
 
 # An EVM transfer, which is how value reaches a plain wallet.
 EVM_PAY = "EmitExternalMessage"
@@ -46,11 +48,19 @@ class Stubs:
             "registered_at": "2026-01-01T09:00:00Z",
             "last_alive": "2026-01-01T09:00:00Z",
             "last_by": "ping",
-            "silent_runs": "0",
+            "silent_runs": "3",
             "last_observed": "",
             "last_outcome": "",
             "note": "registered",
             "silent_days": "120",
+            # Consensus has agreed, three times and recently, that the
+            # marker is gone. Eligibility needs this; the age of
+            # `last_alive` on its own is not enough.
+            "last_silent_at": "2026-04-30T09:00:00Z",
+            "silence_age_seconds": "3600",
+            "silence_confirmed": True,
+            "runs_required": "3",
+            "silence_fresh_for_seconds": str(7 * 24 * 3600),
         }
         self.will = {
             "will_id": WILL_ID,
