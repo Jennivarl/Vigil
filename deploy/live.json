@@ -3,15 +3,15 @@
   "chainId": 61997,
   "rpc": "https://studio-next.genlayer.com/api",
   "explorer": "https://explorer-studio-dev.genlayer.com",
-  "pulse": "0xEB205BCC74668988E9c403C3E5914D5feFeB720f",
-  "will": "0xCA1e55422056c9108e54F68A2e77CD3BcDbe3427",
-  "probate": "0xBCe1BE78D5EE98b8d306A7123520862DcD51A654",
-  "witness": "0x68D76B0621268CA918557fE31D4bcE5814d7c5ef",
+  "pulse": "0xEc6CBF2BEf5B2164BdfF1Eb9bB3568183644712F",
+  "will": "0xb9A506104fDb50A4Ade941D17547F233F26c39a8",
+  "probate": "0x9B67188bd422c1eeED5645dBd7eb7F0bc5952447",
+  "witness": "0xDfc3b94f0c2b060A3EdEF9eeBB9e1bCE901E990C",
   "deployTx": {
-    "pulse": "0xcdc8d27615e9522da8152f2c52abc1b7e85d2e3c284532d78851d87c83a074e3",
-    "will": "0xf308e2947e6c317c2b08e47629dc4e2010cfd5a06c5e93999abe1ea0b20fdb88",
-    "probate": "0x66c0c481dd3a29e6e605297ee49c53a78929d8bae460133e4017d91aae8b9591",
-    "witness": "0x21ee2f2fd37083ed3a5a7573b04d4382f5932a7eca10594b181f42c0db3870b3"
+    "pulse": "0xc3f5b668b6a76ff39791899bc98d2a6dc2e1280eacc7ce66a85dbbcf1e7181c2",
+    "will": "0x3820587e1d28db4fcfe32105460dba44d887ea59200b0bc95973cc25f82593ff",
+    "probate": "0x28896741a1636eb30a19fde3a70b2cd3f64c479a51ccee319553e6f705dc12ff",
+    "witness": "0x4cd789e036ddecdce7f9bede94fa23955199cdc0339f9fb60295cbc15bd401a3"
   },
   "deployed": "2026-10-13"
 }

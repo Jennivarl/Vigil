@@ -40,6 +40,7 @@ from genlayer.types import *
 
 from contracts.liveness import (
     ALIVE,
+    MIN_OBSERVATION_GAP,
     MIN_SILENT_RUNS,
     SILENCE_FRESH_SECONDS,
     SILENT,
@@ -211,8 +212,21 @@ class PulseContract(gl.contract.Contract):
             pulse.silent_runs = 0
             pulse.last_silent_at = ""
         elif outcome == SILENT:
-            pulse.silent_runs = pulse.silent_runs + 1
-            pulse.last_silent_at = now
+            # A confirmation only counts if it is far enough from the last
+            # one. Otherwise three reads of a single bad moment would be
+            # enough to start somebody's succession.
+            at = epoch_seconds(now)
+            last = epoch_seconds(pulse.last_silent_at) if pulse.last_silent_at else None
+            if at is None:
+                pulse.note = "the marker is gone, but the clock could not be read, so this does not count"
+            elif last is None or at - last >= MIN_OBSERVATION_GAP:
+                pulse.silent_runs = pulse.silent_runs + 1
+                pulse.last_silent_at = now
+            else:
+                pulse.note = (
+                    f"the marker is gone, but the last confirmation was {at - last} seconds ago "
+                    f"and confirmations must be {MIN_OBSERVATION_GAP} apart"
+                )
         # An unreachable host advances nothing at all. Not the run of
         # silence, not the last sign of life. Nobody learned anything.
 
@@ -334,5 +348,6 @@ def _as_dict(key: str, pulse: Pulse, now) -> dict:
         "silence_age_seconds": str(silence_age),
         "silence_confirmed": confirmed,
         "runs_required": str(MIN_SILENT_RUNS),
+        "confirmations_at_least_seconds_apart": str(MIN_OBSERVATION_GAP),
         "silence_fresh_for_seconds": str(SILENCE_FRESH_SECONDS),
     }

@@ -30,6 +30,15 @@ UNREACHABLE = "unreachable"
 # an `unreachable` leaves it exactly where it was.
 MIN_SILENT_RUNS = 3
 
+# And they must be spread out. Three fetches ten seconds apart are three
+# consensus rounds, but they can all catch the same transient glitch: a
+# cached error page, a brief deploy, a moment of nonsense from a CDN. A
+# confirmation only counts if it is this far from the last one, so three of
+# them mean the marker was gone across hours rather than across one bad
+# instant. An `alive` observation is never delayed by this, because letting
+# somebody prove they are here is always the safe direction.
+MIN_OBSERVATION_GAP = 3600
+
 # And the most recent of those must be recent. Eligibility that rests on an
 # observation from last year is not a fresh confirmation of anything, so a
 # successor has to show the marker is gone now, not that it once was.

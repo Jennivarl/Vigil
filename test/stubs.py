@@ -60,6 +60,7 @@ class Stubs:
             "silence_age_seconds": "3600",
             "silence_confirmed": True,
             "runs_required": "3",
+            "confirmations_at_least_seconds_apart": "3600",
             "silence_fresh_for_seconds": str(7 * 24 * 3600),
         }
         self.will = {

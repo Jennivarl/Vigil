@@ -152,9 +152,10 @@ def test_an_unreachable_host_advances_nothing_at_all(direct_vm, pulse):
 
 
 def test_runs_of_silence_accumulate_and_a_ping_clears_them(direct_vm, pulse):
-    set_date(direct_vm, DAY10)
+    set_date(direct_vm, "2026-01-11T09:00:00Z")
     serve(direct_vm, "gone")
     pulse.observe(PULSE_ID)
+    set_date(direct_vm, "2026-01-11T11:00:00Z")
     pulse.observe(PULSE_ID)
     assert pulse.get_pulse(PULSE_ID)["silent_runs"] == "2"
 
@@ -240,19 +241,105 @@ def test_a_pulse_nobody_observed_has_confirmed_nothing(direct_vm, pulse):
     assert got["silence_confirmed"] is False
 
 
+def confirm_silence(vm, pulse, start_hour=11):
+    """Three confirmations, an hour apart, which is what the contract counts."""
+    for i in range(3):
+        set_date(vm, f"2026-01-{start_hour // 24 + 11:02d}T{(start_hour + i * 2) % 24:02d}:00:00Z")
+        serve(vm, "gone")
+        pulse.observe(PULSE_ID)
+
+
 def test_silence_is_confirmed_only_after_enough_observations(direct_vm, pulse):
-    set_date(direct_vm, DAY10)
+    set_date(direct_vm, "2026-01-11T09:00:00Z")
     serve(direct_vm, "gone")
     pulse.observe(PULSE_ID)
     assert pulse.get_pulse(PULSE_ID)["silence_confirmed"] is False
+
+    set_date(direct_vm, "2026-01-11T11:00:00Z")
     pulse.observe(PULSE_ID)
     assert pulse.get_pulse(PULSE_ID)["silence_confirmed"] is False
+
+    set_date(direct_vm, "2026-01-11T13:00:00Z")
     pulse.observe(PULSE_ID)
 
     got = pulse.get_pulse(PULSE_ID)
     assert got["silent_runs"] == "3"
     assert got["silence_confirmed"] is True
-    assert got["last_silent_at"] == DAY10
+    assert got["last_silent_at"] == "2026-01-11T13:00:00Z"
+
+
+# ----------------------------------------------------------------------
+# confirmations have to be spread out
+#
+# Three fetches seconds apart are three consensus rounds, but they can all
+# catch one transient glitch: a cached error page, a brief deploy, a moment
+# of nonsense from a CDN. That must not be enough to start a succession.
+# ----------------------------------------------------------------------
+
+
+def test_three_observations_in_one_instant_count_once(direct_vm, pulse):
+    set_date(direct_vm, DAY10)
+    serve(direct_vm, "gone")
+    pulse.observe(PULSE_ID)
+    pulse.observe(PULSE_ID)
+    pulse.observe(PULSE_ID)
+
+    got = pulse.get_pulse(PULSE_ID)
+    assert got["silent_runs"] == "1"
+    assert got["silence_confirmed"] is False
+
+
+def test_an_observation_that_is_too_soon_says_so(direct_vm, pulse):
+    set_date(direct_vm, DAY10)
+    serve(direct_vm, "gone")
+    pulse.observe(PULSE_ID)
+    set_date(direct_vm, "2026-01-11T09:10:00Z")
+    got = pulse.observe(PULSE_ID)
+
+    assert got["silent_runs"] == "1"
+    assert "600 seconds ago" in got["note"]
+    assert "3600 apart" in got["note"]
+
+
+def test_exactly_an_hour_apart_counts(direct_vm, pulse):
+    set_date(direct_vm, "2026-01-11T09:00:00Z")
+    serve(direct_vm, "gone")
+    pulse.observe(PULSE_ID)
+    set_date(direct_vm, "2026-01-11T10:00:00Z")
+
+    assert pulse.observe(PULSE_ID)["silent_runs"] == "2"
+
+
+def test_a_glitch_cannot_be_read_three_times_into_a_handover(direct_vm, pulse):
+    """
+    The point of the gap. A page that is briefly broken, hammered by a
+    successor in a hurry, still only ever counts once.
+    """
+    set_date(direct_vm, DAY10)
+    serve(direct_vm, "Not Found", status=404)
+    for _ in range(10):
+        pulse.observe(PULSE_ID)
+
+    got = pulse.get_pulse(PULSE_ID)
+    assert got["silent_runs"] == "1"
+    assert got["silence_confirmed"] is False
+
+
+def test_an_owner_returning_is_never_delayed_by_the_gap(direct_vm, pulse):
+    """Letting somebody prove they are here is always the safe direction."""
+    set_date(direct_vm, DAY10)
+    serve(direct_vm, "gone")
+    pulse.observe(PULSE_ID)
+    serve(direct_vm, MARKER)
+    got = pulse.observe(PULSE_ID)
+
+    assert got["last_outcome"] == ALIVE
+    assert got["silent_runs"] == "0"
+    assert got["last_silent_at"] == ""
+
+
+def test_the_gap_is_published_rather_than_implied(pulse):
+    assert pulse.get_pulse(PULSE_ID)["confirmations_at_least_seconds_apart"] == "3600"
 
 
 def test_an_unreachable_host_leaves_the_confirmation_exactly_where_it_was(direct_vm, pulse):
@@ -261,10 +348,7 @@ def test_an_unreachable_host_leaves_the_confirmation_exactly_where_it_was(direct
     so it must not push a handover forward, and it must not let a host that
     goes down undo evidence already agreed.
     """
-    set_date(direct_vm, DAY10)
-    serve(direct_vm, "gone")
-    for _ in range(3):
-        pulse.observe(PULSE_ID)
+    confirm_silence(direct_vm, pulse)
     before = pulse.get_pulse(PULSE_ID)
 
     serve(direct_vm, "oh dear", status=503)
@@ -277,10 +361,7 @@ def test_an_unreachable_host_leaves_the_confirmation_exactly_where_it_was(direct
 
 
 def test_the_owner_coming_back_destroys_the_confirmation(direct_vm, pulse):
-    set_date(direct_vm, DAY10)
-    serve(direct_vm, "gone")
-    for _ in range(3):
-        pulse.observe(PULSE_ID)
+    confirm_silence(direct_vm, pulse)
     assert pulse.get_pulse(PULSE_ID)["silence_confirmed"] is True
 
     with direct_vm.prank(OWNER):
@@ -292,10 +373,7 @@ def test_the_owner_coming_back_destroys_the_confirmation(direct_vm, pulse):
 
 def test_a_confirmation_goes_stale_on_its_own(direct_vm, pulse):
     """A week old is fresh. A month old is a claim about last month."""
-    set_date(direct_vm, DAY10)
-    serve(direct_vm, "gone")
-    for _ in range(3):
-        pulse.observe(PULSE_ID)
+    confirm_silence(direct_vm, pulse)
     assert pulse.get_pulse(PULSE_ID)["silence_confirmed"] is True
 
     set_date(direct_vm, "2026-02-20T09:00:00Z")
