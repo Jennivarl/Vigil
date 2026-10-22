@@ -20,10 +20,10 @@ No model is involved anywhere. Validators fetch and compare strings.
 | Network | GenLayer Studio Next, chain id 61997, `https://studio-next.genlayer.com/api` |
 | Engine | Consensus v0.6, GenVM v0.3, runner `py-genlayer:5jycge...` |
 | PULSE | [`0xEc6CBF2BEf5B2164BdfF1Eb9bB3568183644712F`](https://explorer-studio-dev.genlayer.com/address/0xEc6CBF2BEf5B2164BdfF1Eb9bB3568183644712F) |
-| WILL | [`0xb9A506104fDb50A4Ade941D17547F233F26c39a8`](https://explorer-studio-dev.genlayer.com/address/0xb9A506104fDb50A4Ade941D17547F233F26c39a8) |
-| PROBATE | [`0x9B67188bd422c1eeED5645dBd7eb7F0bc5952447`](https://explorer-studio-dev.genlayer.com/address/0x9B67188bd422c1eeED5645dBd7eb7F0bc5952447) |
+| WILL | [`0xC791E55bAde7150054808Aeb76e02116d9aC70c4`](https://explorer-studio-dev.genlayer.com/address/0xC791E55bAde7150054808Aeb76e02116d9aC70c4) |
+| PROBATE | [`0x1996c8E230202CEf61fb0e4f417757CC3cfEf7Cd`](https://explorer-studio-dev.genlayer.com/address/0x1996c8E230202CEf61fb0e4f417757CC3cfEf7Cd) |
 | WITNESS | [`0xDfc3b94f0c2b060A3EdEF9eeBB9e1bCE901E990C`](https://explorer-studio-dev.genlayer.com/address/0xDfc3b94f0c2b060A3EdEF9eeBB9e1bCE901E990C) |
-| Tests | 165, `python -m pytest -q` |
+| Tests | 177, `python -m pytest -q` |
 
 ---
 
@@ -83,6 +83,12 @@ Every cross-contract address is now fixed when the contract is deployed and can 
 The court is named afterwards rather than in the constructor only because the two contracts have to know each other, and something has to be deployed first. `bind_probate` refuses anyone but the deployer, refuses a second call, and `execute` refuses to run at all until it has been set. `settings()` on both publishes what they trust.
 
 A contract that lets its caller choose who it believes has no guarantees at all, only the appearance of them.
+
+## A verdict is about one version of one will
+
+A steward found the next hole. Cancelling and writing again on the same pulse reused the same will id, and `execute` only checked that a verdict named that id, owner and pulse. So a probate that had ripened against a will the owner later cancelled could pay out the replacement, without the replacement ever having its own grace period.
+
+Every will now carries a **version**: 1 when first written, one more each time it is written again after a cancel. PROBATE reads the version when a case opens, keeps it, puts it in the case id (`…|v2`), and reports it in every verdict. `execute` pays only when the verdict's version is the one WILL holds now. A rewritten will starts its own case from nothing, and an old ripe case can never move its money. The regression is `test_cancel_then_rewrite_then_the_old_verdict_cannot_execute`.
 
 ---
 
@@ -146,21 +152,24 @@ Every address in [`deploy/live.json`](deploy/live.json) runs the exact bundle co
 | Observe it | [`0x888e9615...`](https://explorer-studio-dev.genlayer.com/tx/0x888e96156614de7000cde19a1809d79f8f7aaa6516444013c4dc6fd7fb6bcae2) | **`unreachable`**: `the document could not be fetched`. Nothing advanced |
 | Observe the silent pulse, 18:51:03 | [`0x2df8f73e...`](https://explorer-studio-dev.genlayer.com/tx/0x2df8f73e76ab2e25fa27c1684e2b8ef7a53d2000715412845974c245986e04ca) | Two hours clear, so it counts. Confirmed runs: **2** |
 | Observe it, 20:51:27 | [`0x0a7dfc44...`](https://explorer-studio-dev.genlayer.com/tx/0x0a7dfc444048b85507fd777541191f164b5e6b913c28e0d1b848882a56c94505) | Two hours clear again. Confirmed runs: **3** |
-| Write a will against the live pulse | [`0xe8d6266b...`](https://explorer-studio-dev.genlayer.com/tx/0xe8d6266ba8e78a7d0a3fe1a126d1282f56986cbe4865903e072a323cbd74255e) | 0.5 GEN held, 90 days of silence required |
-| Try to open probate | [`0x2a52a7ea...`](https://explorer-studio-dev.genlayer.com/tx/0x2a52a7ea1edc571c35ace0bf2b54d0141a2fc81b553b84b7a50946c788cc4cfb) | **refused**: the owner is alive and the caller is not the named successor |
-| Owner cancels | [`0x8a44f5e2...`](https://explorer-studio-dev.genlayer.com/tx/0x8a44f5e239ade52b3f2aa8d3ac1a00f4839a6cc37e1302b7bb8b062554544b5d) | **paid back**: 36.788099 → 37.287973 GEN, the whole deposit returned, `committed` back to `0` |
+| Write a will against the live pulse | [`0x2dca366a...`](https://explorer-studio-dev.genlayer.com/tx/0x2dca366ae4d2a1ef2c5228fb8773cc7dcb133173dbb4fd9acf103e3a82bf1ec9) | 0.05 GEN held, 90 days of silence required. **Version 1** |
+| The successor tries to open probate | [`0x712d081c...`](https://explorer-studio-dev.genlayer.com/tx/0x712d081cdae77cd8743ff1ef25d1d098f4db54dbeab506d28159a95077872d76) | **refused**: `the owner has been silent 9 days of the 90 required` |
+| Owner cancels | [`0x5e88dfad...`](https://explorer-studio-dev.genlayer.com/tx/0x5e88dfaded48b0e616eb63859cd013ac09b18e6769b5bc05ef5e70890c337493) | **paid back**: the deposit returned to the owner in [`0x59e28208...`](https://explorer-studio-dev.genlayer.com/tx/0x59e28208ed9643d0173e3f2f20dbf5539e845e2b5caba1f36626a5e27e678cc6) |
+| Owner writes it again | [`0x21380185...`](https://explorer-studio-dev.genlayer.com/tx/0x213801852dd9692130319498403ccc5c24b05542ebd2c034fd5f73db16a33480) | the same will id, now **version 2** |
+| The successor tries again | [`0xba93f555...`](https://explorer-studio-dev.genlayer.com/tx/0xba93f5554498ff6421d6441675f01c23db587760667394f2a5df9ec68dcd7480) | **refused**, on the same grounds |
+| Owner cancels version 2 | [`0xb341e297...`](https://explorer-studio-dev.genlayer.com/tx/0xb341e2973a80cc22a7da5f3da9c4417b64b2be7ae98196c1646939ef424a5b2f) | **paid back** in [`0x5e5e9d75...`](https://explorer-studio-dev.genlayer.com/tx/0x5e5e9d75a80d80f70fdbb01cd60de15a950b6c48027a5325e5005978f524e596), `committed` back to `0` |
 
-Four rows carry the design.
+These rows carry the design.
 
 **The same page is `alive` under one marker and `silent` under another**, fetched by the same contract minutes apart, while a host that cannot be reached is neither. A fetch that fails is not evidence of anything.
 
 **The second observation did not count.** Four observations of the silent pulse are on chain and the contract's counter reads three, because the second came 49 seconds after the first. Three fetches in a minute are three consensus rounds that can all catch one transient glitch; only observations an hour or more apart confirm anything. The two that counted came two hours apart each.
 
-**The payout path moved real value**, and it moved it back to the owner, which is the path that must work even when nobody has died.
+**The payout path moved real value**, twice, and it moved it back to the owner, which is the path that must work even when nobody has died. The second will shares the first one's id and carries version 2, which is what keeps any verdict about the first from ever paying out the second.
 
-The deploys, in dependency order: PULSE [`0xc3f5b668...`](https://explorer-studio-dev.genlayer.com/tx/0xc3f5b668b6a76ff39791899bc98d2a6dc2e1280eacc7ce66a85dbbcf1e7181c2), WILL [`0x3820587e...`](https://explorer-studio-dev.genlayer.com/tx/0x3820587e1d28db4fcfe32105460dba44d887ea59200b0bc95973cc25f82593ff), PROBATE [`0x28896741...`](https://explorer-studio-dev.genlayer.com/tx/0x28896741a1636eb30a19fde3a70b2cd3f64c479a51ccee319553e6f705dc12ff), WITNESS [`0x4cd789e0...`](https://explorer-studio-dev.genlayer.com/tx/0x4cd789e036ddecdce7f9bede94fa23955199cdc0339f9fb60295cbc15bd401a3). The court was then bound to WILL, once and for good: [`0xd4d28fbc...`](https://explorer-studio-dev.genlayer.com/tx/0xd4d28fbc828241d83f7f536022092048d75ade6e9392b4e644733469a5df4f1e).
+The deploys, in dependency order: PULSE [`0xc3f5b668...`](https://explorer-studio-dev.genlayer.com/tx/0xc3f5b668b6a76ff39791899bc98d2a6dc2e1280eacc7ce66a85dbbcf1e7181c2), WILL [`0x6391b26b...`](https://explorer-studio-dev.genlayer.com/tx/0x6391b26b6e002fa1355632073fe81686b3bfd69ced1936e6006fb1766e34712f), PROBATE [`0x2dcf1a98...`](https://explorer-studio-dev.genlayer.com/tx/0x2dcf1a9893888deb9f3bbb22a37889e7432555997acf1467617ff46323dc9a48), WITNESS [`0x4cd789e0...`](https://explorer-studio-dev.genlayer.com/tx/0x4cd789e036ddecdce7f9bede94fa23955199cdc0339f9fb60295cbc15bd401a3). The court was then bound to WILL, once and for good: [`0x41da2ba9...`](https://explorer-studio-dev.genlayer.com/tx/0x41da2ba95fda4e276fd9fcaf7d92bce5f804ffcd92f95dfd0a1ea1f300372340).
 
-**Not shown live:** a completed handover, because it needs 90 days of real silence followed by 14 of grace. Every step of it is covered by the test suite, including the case where the owner reappears after probate opens and the successor gets nothing.
+**Not shown live:** a completed handover, because it needs 90 days of real silence followed by 14 of grace. Every step of it is covered by the test suite, including the case where the owner reappears after probate opens and the successor gets nothing, and the case where a will is cancelled and rewritten after a probate on the old one has ripened.
 
 ---
 
@@ -180,7 +189,7 @@ The deploys, in dependency order: PULSE [`0xc3f5b668...`](https://explorer-studi
 ```sh
 python -m venv .venv && .venv/Scripts/pip install -r requirements.txt
 python -m deploy.build_bundle          # the four files that actually deploy
-python -m pytest -q                    # 165 tests, no chain and no network
+python -m pytest -q                    # 177 tests, no chain and no network
 ```
 
 The tests run the contracts in direct mode, in process. The watched document is answered from the test, so a test can produce states that are slow to arrange for real: years of silence, a host that is merely down, and an owner who reappears at the last possible moment.
@@ -195,8 +204,7 @@ Deployment order matters, because each contract is told who it trusts, and the c
 node deploy/deploy.mjs contracts/pulse_bundle.py
 node deploy/deploy.mjs contracts/will_bundle.py    <pulse address>
 node deploy/deploy.mjs contracts/probate_bundle.py <will address>
-# then, once, from the deploying account:
-#   WILL.bind_probate(<probate address>)
+node deploy/demo.mjs bind                         # once, from the deploying account
 ```
 
 ```sh
@@ -225,7 +233,7 @@ deploy/chain.mjs            network, signing and payout fee allocations
 deploy/deploy.mjs           deploy one bundle
 deploy/verify.mjs           prove a live contract runs this exact bundle
 deploy/demo.mjs             drive the live copies
-test/                       165 tests
+test/                       177 tests
 ```
 
 GenVM loads a single source file with no access to siblings, so each bundle pastes a contract together with the pure module it imports. Comments and docstrings are stripped from the deployed copy, because a deploy costs gas per byte and a bundle over the cap returns a transaction hash and then simply does not exist. Edit the modules, never a bundle: a test regenerates them and fails if a committed copy has drifted.

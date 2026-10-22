@@ -23,7 +23,7 @@ PROBATE_AT = "0x" + ("ff" * 20)
 NAME = "estate"
 PULSE_ID = "0x" + OWNER.hex() + ":" + NAME
 WILL_ID = "0x" + OWNER.hex() + "|" + PULSE_ID
-CASE_ID = WILL_AT.lower() + "|" + WILL_ID
+CASE_ID = WILL_AT.lower() + "|" + WILL_ID + "|v1"
 
 DEPOSIT = 1_000_000
 SILENCE_DAYS = 90
@@ -71,6 +71,7 @@ class Stubs:
             "pulse": PULSE_AT,
             "pulse_id": PULSE_ID,
             "silence_days": str(SILENCE_DAYS),
+            "version": "1",
             "written_at": "2026-01-01T10:00:00Z",
             "state": "held",
             "decided_at": "",
@@ -82,6 +83,7 @@ class Stubs:
             "opener": "0x" + HEIR.hex(),
             "will": WILL_AT,
             "will_id": WILL_ID,
+            "will_version": "1",
             "owner": "0x" + OWNER.hex(),
             "successor": "0x" + HEIR.hex(),
             "pulse": PULSE_AT,

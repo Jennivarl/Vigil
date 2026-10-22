@@ -109,6 +109,30 @@ def test_probate_cannot_be_opened_twice(direct_vm, probate):
         open_case(direct_vm, probate)
 
 
+def test_a_case_records_the_version_of_the_will_it_is_about(direct_vm, probate):
+    got = open_case(direct_vm, probate)
+    assert got["will_version"] == "1"
+    assert got["case_id"] == CASE_ID
+    assert probate.verdict(CASE_ID)["will_version"] == "1"
+
+
+def test_a_rewritten_will_gets_a_case_of_its_own(direct_vm, probate, stubs):
+    """The old case stays about the old will; the new one starts from nothing."""
+    open_case(direct_vm, probate)
+    stubs.set_will(version="2")
+    got = open_case(direct_vm, probate)
+    assert got["will_version"] == "2"
+    assert got["case_id"] == CASE_ID[:-1] + "2"
+    assert probate.verdict(CASE_ID)["will_version"] == "1"
+    assert len(probate.case_list()) == 2
+
+
+def test_a_will_without_a_version_cannot_be_probated(direct_vm, probate, stubs):
+    stubs.set_will(version="0")
+    with direct_vm.expect_revert("no version"):
+        open_case(direct_vm, probate)
+
+
 # ----------------------------------------------------------------------
 # the clock
 # ----------------------------------------------------------------------

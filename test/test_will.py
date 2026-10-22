@@ -162,6 +162,46 @@ def test_a_cancelled_will_cannot_be_executed(direct_vm, will, stubs):
     assert len(stubs.transfers) == 1
 
 
+def test_a_will_written_again_after_a_cancel_is_a_new_version(direct_vm, will):
+    assert write_will(direct_vm, will)["version"] == "1"
+    with direct_vm.prank(OWNER):
+        will.cancel(WILL_ID)
+    got = write_will(direct_vm, will)
+    assert got["will_id"] == WILL_ID
+    assert got["version"] == "2"
+
+
+def test_cancel_then_rewrite_then_the_old_verdict_cannot_execute(direct_vm, will, stubs):
+    """
+    The regression: a probate that ripened against the first will must not
+    pay out the second, even though both share the owner, pulse and id.
+    """
+    write_will(direct_vm, will)
+    with direct_vm.prank(OWNER):
+        will.cancel(WILL_ID)
+    write_will(direct_vm, will)
+    set_date(direct_vm, LATER)
+    # The verdict is ripe and matches the id, owner and pulse, but it was
+    # opened on version 1.
+    stubs.set_verdict(will_version="1")
+    with direct_vm.expect_revert("about version 1 of this will, and version 2 is held now"):
+        will.execute(CASE_ID, WILL_ID)
+    assert stubs.transfers == [{"to": OWNER, "value": DEPOSIT, "kind": EVM_PAY}]
+    assert will.get_will(WILL_ID)["state"] == "held"
+
+
+def test_a_verdict_on_the_current_version_still_pays(direct_vm, will, stubs):
+    write_will(direct_vm, will)
+    with direct_vm.prank(OWNER):
+        will.cancel(WILL_ID)
+    write_will(direct_vm, will)
+    set_date(direct_vm, LATER)
+    stubs.set_verdict(will_version="2", case_id=CASE_ID[:-1] + "2")
+    got = will.execute(CASE_ID[:-1] + "2", WILL_ID)
+    assert got["state"] == "paid"
+    assert stubs.transfers[-1] == {"to": HEIR, "value": DEPOSIT, "kind": EVM_PAY}
+
+
 # ----------------------------------------------------------------------
 # executing, where WILL refuses to take PROBATE's word for it
 # ----------------------------------------------------------------------

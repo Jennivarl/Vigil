@@ -4,6 +4,7 @@
 //   export GENLAYER_KEYSTORE=~/.genlayer/keystores/mykey.json
 //   export GENLAYER_PASSWORD=...           # never stored in this repo
 //
+//   node deploy/demo.mjs bind                 once, by the deployer, after both deploys
 //   node deploy/demo.mjs show
 //   node deploy/demo.mjs register <name> <host> <path> "<marker>"
 //   node deploy/demo.mjs observe  <pulse_id>
@@ -13,7 +14,7 @@
 //   node deploy/demo.mjs open     <will_id>
 //   node deploy/demo.mjs execute  <case_id> <will_id>
 //
-// Addresses come from live.json, written by deploy/deploy.mjs.
+// Addresses come from deploy/live.json.
 import { readFileSync } from "node:fs";
 import {
   MESSAGE_ALLOCATION_ROOT_PARENT_INDEX,
@@ -88,7 +89,7 @@ async function show() {
   }
   for (const id of await view(WILL, "will_list")) {
     const w = await view(WILL, "get_will", [id]);
-    console.log(`will ${id}\n   [${w.state}] ${w.amount} after ${w.silence_days}d | ${w.reason || "-"}`);
+    console.log(`will ${id} v${w.version}\n   [${w.state}] ${w.amount} after ${w.silence_days}d | ${w.reason || "-"}`);
   }
   console.log("committed", (await view(WILL, "reserves")).committed);
 }
@@ -96,7 +97,10 @@ async function show() {
 const [step, ...rest] = process.argv.slice(2);
 console.log("wallet", account.address, fmt(await balance(account.address)), "\n");
 
-if (step === "register") {
+if (step === "bind") {
+  await write(WILL, "bind_probate", [PROBATE]);
+  console.log("WILL now trusts", (await view(WILL, "settings")).probate);
+} else if (step === "register") {
   await write(PULSE, "register", [rest[0], rest[1], rest[2], rest[3]]);
 } else if (step === "observe") {
   await write(PULSE, "observe", [rest[0]]);
@@ -126,7 +130,7 @@ if (step === "register") {
   console.log("successor after ", fmt(await balance(before.successor)));
   console.log(`=> ${after.state}: ${after.reason}`);
 } else if (step !== "show") {
-  console.log("steps: show, register, observe, ping, write, cancel, open, execute");
+  console.log("steps: bind, show, register, observe, ping, write, cancel, open, execute");
   process.exit(1);
 }
 

@@ -106,6 +106,7 @@ class Will:
     pulse: Address
     pulse_id: str
     silence_days: u256
+    version: u256
     written_at: str
     state: str
     decided_at: str
@@ -160,7 +161,8 @@ class WillContract(gl.contract.Contract):
         if will_id in self.wills and self.wills[will_id].state == STATE_HELD:
             raise gl.vm.UserError('that pulse already has a will; cancel it first')
         first_time = will_id not in self.wills
-        self.wills[will_id] = Will(owner=owner, successor=heir, amount=amount, pulse=at, pulse_id=key, silence_days=days, written_at=_stamp(), state=STATE_HELD, decided_at='', reason='')
+        version = 1 if first_time else int(self.wills[will_id].version) + 1
+        self.wills[will_id] = Will(owner=owner, successor=heir, amount=amount, pulse=at, pulse_id=key, silence_days=days, version=version, written_at=_stamp(), state=STATE_HELD, decided_at='', reason='')
         if first_time:
             self.will_ids.append(will_id)
         self.committed = self.committed + amount
@@ -208,6 +210,8 @@ class WillContract(gl.contract.Contract):
             raise gl.vm.UserError('that probate names a different owner')
         if str(verdict['pulse_id']).lower() != will.pulse_id:
             raise gl.vm.UserError('that probate watches a different pulse')
+        if str(verdict['will_version']) != str(will.version):
+            raise gl.vm.UserError(f"that probate is about version {verdict['will_version']} of this will, and version {will.version} is held now")
         state = str(verdict['state'])
         if state != 'ripe':
             return self._undecided(key, will, 'the probate is ' + state + ': ' + str(verdict['reason']))
@@ -295,4 +299,4 @@ def _pay(to: Address, amount: int) -> None:
     _Wallet(to).emit_transfer(value=amount)
 
 def _as_dict(key: str, will: Will) -> dict:
-    return {'will_id': key, 'owner': will.owner.as_hex, 'successor': will.successor.as_hex, 'amount': str(will.amount), 'pulse': will.pulse.as_hex, 'pulse_id': will.pulse_id, 'silence_days': str(will.silence_days), 'written_at': will.written_at, 'state': will.state, 'decided_at': will.decided_at, 'reason': will.reason}
+    return {'will_id': key, 'owner': will.owner.as_hex, 'successor': will.successor.as_hex, 'amount': str(will.amount), 'pulse': will.pulse.as_hex, 'pulse_id': will.pulse_id, 'silence_days': str(will.silence_days), 'version': str(will.version), 'written_at': will.written_at, 'state': will.state, 'decided_at': will.decided_at, 'reason': will.reason}

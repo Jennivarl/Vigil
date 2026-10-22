@@ -19,6 +19,11 @@ boat, or simply not watching a chain. Opening probate is a public event, and
 the grace is the window in which anyone who cares can tell the owner to
 sign something.
 
+A case is about one version of one will. The will id is reused when the
+owner cancels and writes again, so the case records the version it opened
+on, carries it in its own id, and reports it in every verdict. WILL pays
+only when that version is the one it holds.
+
 `verdict` does not reach out to anything. It reports the process only. The
 question of whether the owner is still silent is asked again, live, by the
 contract that actually moves the money, because that is where getting it
@@ -47,6 +52,9 @@ class Probate:
     opener: Address
     will: Address
     will_id: str
+    # The incarnation of the will this case is about, read from WILL when
+    # the case opened. Never changes.
+    will_version: u256
     owner: Address
     successor: Address
     pulse: Address
@@ -122,7 +130,10 @@ class ProbateContract(gl.contract.Contract):
                 f"the last confirmed silence is {age} seconds old; observe it again"
             )
 
-        case_id = at.as_hex.lower() + "|" + key
+        version = int(str(terms["version"]))
+        if version < 1:
+            raise gl.vm.UserError("that will has no version")
+        case_id = at.as_hex.lower() + "|" + key + "|v" + str(version)
         if case_id in self.cases and not self.cases[case_id].halted:
             raise gl.vm.UserError("probate is already open on that will")
 
@@ -131,6 +142,7 @@ class ProbateContract(gl.contract.Contract):
             opener=gl.message.sender_address,
             will=at,
             will_id=key,
+            will_version=version,
             owner=_address(terms["owner"]),
             successor=successor,
             pulse=pulse_at,
@@ -251,6 +263,7 @@ def _as_dict(key: str, case: Probate, now) -> dict:
         "opener": case.opener.as_hex,
         "will": case.will.as_hex,
         "will_id": case.will_id,
+        "will_version": str(case.will_version),
         "owner": case.owner.as_hex,
         "successor": case.successor.as_hex,
         "pulse": case.pulse.as_hex,

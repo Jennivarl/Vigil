@@ -20,6 +20,12 @@ a ripe verdict, draining a living owner's will to the successor on demand.
 A contract that lets a caller choose who it believes has no guarantees at
 all.
 
+Every will carries a version. Cancelling and writing again on the same pulse
+reuses the same will id, so the id alone cannot tell one will from the next:
+the version can. PROBATE records the version it opened on, and `execute`
+pays only on a verdict about the version that is held now. A verdict that
+ripened against a cancelled will can never pay out its replacement.
+
 The owner can cancel at any moment right up to execution, and that is the
 point rather than a loophole. Every one of these transactions is signed by
 the owner, so an owner who can cancel is an owner who is demonstrably still
@@ -51,6 +57,9 @@ class Will:
     pulse: Address
     pulse_id: str
     silence_days: u256
+    # Which incarnation of this will id this is: 1 for the first, one more
+    # for every rewrite after a cancel. Fixed for the life of the will.
+    version: u256
     written_at: str
     state: str
     decided_at: str
@@ -133,6 +142,7 @@ class WillContract(gl.contract.Contract):
             raise gl.vm.UserError("that pulse already has a will; cancel it first")
 
         first_time = will_id not in self.wills
+        version = 1 if first_time else int(self.wills[will_id].version) + 1
         self.wills[will_id] = Will(
             owner=owner,
             successor=heir,
@@ -140,6 +150,7 @@ class WillContract(gl.contract.Contract):
             pulse=at,
             pulse_id=key,
             silence_days=days,
+            version=version,
             written_at=_stamp(),
             state=STATE_HELD,
             decided_at="",
@@ -218,6 +229,12 @@ class WillContract(gl.contract.Contract):
             raise gl.vm.UserError("that probate names a different owner")
         if str(verdict["pulse_id"]).lower() != will.pulse_id:
             raise gl.vm.UserError("that probate watches a different pulse")
+        # The id is reused when a will is cancelled and written again, so
+        # the version is what says the verdict is about this will.
+        if str(verdict["will_version"]) != str(will.version):
+            raise gl.vm.UserError(
+                f"that probate is about version {verdict['will_version']} of this will, and version {will.version} is held now"
+            )
 
         state = str(verdict["state"])
         if state != "ripe":
@@ -361,6 +378,7 @@ def _as_dict(key: str, will: Will) -> dict:
         "pulse": will.pulse.as_hex,
         "pulse_id": will.pulse_id,
         "silence_days": str(will.silence_days),
+        "version": str(will.version),
         "written_at": will.written_at,
         "state": will.state,
         "decided_at": will.decided_at,

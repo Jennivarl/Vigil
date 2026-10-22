@@ -43,6 +43,9 @@ export async function signer() {
   return privateKeyToAccount(wallet.privateKey);
 }
 
+/** A client that only reads, so anyone can verify without a key. */
+export const reader = () => createClient({ chain: studioNext });
+
 export async function connect() {
   const account = await signer();
   return { account, client: createClient({ chain: studioNext, account }) };

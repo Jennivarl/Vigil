@@ -4,14 +4,14 @@
   "rpc": "https://studio-next.genlayer.com/api",
   "explorer": "https://explorer-studio-dev.genlayer.com",
   "pulse": "0xEc6CBF2BEf5B2164BdfF1Eb9bB3568183644712F",
-  "will": "0xb9A506104fDb50A4Ade941D17547F233F26c39a8",
-  "probate": "0x9B67188bd422c1eeED5645dBd7eb7F0bc5952447",
+  "will": "0xC791E55bAde7150054808Aeb76e02116d9aC70c4",
+  "probate": "0x1996c8E230202CEf61fb0e4f417757CC3cfEf7Cd",
   "witness": "0xDfc3b94f0c2b060A3EdEF9eeBB9e1bCE901E990C",
   "deployTx": {
     "pulse": "0xc3f5b668b6a76ff39791899bc98d2a6dc2e1280eacc7ce66a85dbbcf1e7181c2",
-    "will": "0x3820587e1d28db4fcfe32105460dba44d887ea59200b0bc95973cc25f82593ff",
-    "probate": "0x28896741a1636eb30a19fde3a70b2cd3f64c479a51ccee319553e6f705dc12ff",
+    "will": "0x6391b26b6e002fa1355632073fe81686b3bfd69ced1936e6006fb1766e34712f",
+    "probate": "0x2dcf1a9893888deb9f3bbb22a37889e7432555997acf1467617ff46323dc9a48",
     "witness": "0x4cd789e036ddecdce7f9bede94fa23955199cdc0339f9fb60295cbc15bd401a3"
   },
-  "deployed": "2026-10-13"
+  "deployed": "2026-10-23"
 }
